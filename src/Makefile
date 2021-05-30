@@ -1,6 +1,6 @@
 
 all:
-	gcc -g -o iecgw iec.c buffers.c errormsg.c utils.c socket.c debug.c main.c -lwiringPi
+	gcc -g -Wall -o iecgw iec.c buffers.c errormsg.c utils.c  debug.c compat.c iecgw.c main.c -lwiringPi
 
 clean:
 	rm -f iecgw

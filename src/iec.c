@@ -59,7 +59,7 @@
 /* ------------------------------------------------------------------------- */
 
 /* Current device address */
-uint8_t device_address;
+// uint8_t device_address;
 
 iec_data_t iec_data;
 
@@ -80,6 +80,9 @@ static iec_bus_t iec_debounced(void) {
 
 /// Checks if ATN has changed and changes state to match (EA59)
 uint8_t iec_check_atn(void) {
+  if (iec_data.bus_state == BUS_SENDATN)
+    return 0;
+
   if (iec_data.bus_state == BUS_ATNACTIVE)
     if (IEC_ATN) {
       iec_data.bus_state = BUS_ATNPROCESS; // A9AC
@@ -164,7 +167,8 @@ static int16_t _iec_getc(void) {
         /* If there is a delay before the last bit, the controller uses JiffyDOS */
         if (!(iec_data.iecflags & JIFFY_ACTIVE) && has_timed_out()) {
             printf ("JIFFY?\n");
-          if ((val>>1) < 0x60 && ((val>>1) & 0x1f) == device_address) {
+          // if ((val>>1) < 0x60 && ((val>>1) & 0x1f) == device_address) {
+          if ((val>>1) < 0x60 && is_hw_address((val>>1) & 0x1f)) {
             /* If it's for us, notify controller that we support Jiffy too */
             set_data(0);
             delay_us(101); // nlq says 405us, but the code shows only 101
@@ -303,6 +307,111 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
 }
 
 
+/**
+ * iec_atn_putc - send atn byte over the serial bus 
+ * @cmd1    : byte to be sent
+ * @cmd2    : byte to be sent
+ * @cmd3    : byte to be sent
+ *
+ * This function sends the byte data over the serial bus
+ * Returns 0 normally or -1 if the bus state has
+ * changed, the caller should return to the main loop in that case.
+ */
+static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
+  set_atn_irq(0);
+  set_atn(0);
+  set_data(1);
+  set_clock(0);
+  start_timeout(1000);
+  printf("%lld iec_atn_putc %02x %02x %02x\n", timestamp_us(), cmd1, cmd2, cmd3);
+
+  uint8_t ret = -1;
+
+  // FIXME delay ?
+  do {
+    if (has_timed_out()) {
+      iec_data.bus_state = BUS_CLEANUP;
+      // FIXME Device not present error
+      printf("%lld iec_atn_putc ERR timeo\n", timestamp_us());
+      goto endatn;
+    }
+    // Wait for data pull down
+    debug_state();
+  } while (IEC_DATA);
+  debug_atn_command("SEND", cmd1);
+
+  if (iec_putc(cmd1, 0)) {
+    printf("iec_atn_putc ERR1\n");
+    goto endatn;
+  }
+  if (cmd2) {
+    delay_us(1000); // FIXME ?
+    debug_atn_command("SEND", cmd2);
+    if (iec_putc(cmd2, 0)) {
+      printf("iec_atn_putc ERR2\n");
+      goto endatn;
+    }
+    if (cmd3) {
+      delay_us(1000); // FIXME ?
+      debug_atn_command("SEND", cmd3);
+      if (iec_putc(cmd3, 0)) {
+        printf("iec_atn_putc ERR3\n");
+        goto endatn;
+      }
+    }
+  }
+  ret = 0;
+
+  endatn:
+  delay_us(20);
+  set_atn(1);
+  return ret;
+}
+
+static uint8_t iec_start_listening() {
+  set_data(0);
+  delay_us(70);
+  set_clock(1);
+  delay_us(70);
+
+  start_timeout(20000);
+  printf("%lld make_listening\n", timestamp_us());
+  do {
+    if (has_timed_out()) {
+      iec_data.bus_state = BUS_CLEANUP;
+      // FIXME Device not present error
+      printf("%lld make_talker ERR timeo\n", timestamp_us());
+      return -1;
+    }
+    // Wait for data pull down
+    debug_state();
+  } while (!get_clock());
+  return 0;
+}
+
+static uint8_t iec_end_listening() {
+
+  start_timeout(20000);
+  printf("%lld end_make_listening\n", timestamp_us());
+  do {
+    if (has_timed_out()) {
+      iec_data.bus_state = BUS_CLEANUP;
+      // FIXME Device not present error
+      printf("%lld make_listener ERR timeo\n", timestamp_us());
+      return -1;
+    }
+    // Wait for data pull down
+    debug_state();
+  } while (get_clock());
+
+  set_data(1);
+  delay_us(70);
+  set_clock(0);
+  delay_us(70);
+
+  return 0;
+}
+
 /* ------------------------------------------------------------------------- */
 /*  Listen+Talk-Handling                                                     */
 /* ------------------------------------------------------------------------- */
@@ -352,7 +461,7 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
 
     if ((cmd & 0x0f) == 0x0f || (cmd & 0xf0) == 0xf0) {
       if (command_length < CONFIG_COMMAND_BUFFER_SIZE)
-        command_buffer[command_length++] = c;
+          command_buffer[command_length++] = c;
       if (iec_data.iecflags & EOI_RECVD)
         // Filenames are just a special type of command =)
         iec_data.iecflags |= COMMAND_RECVD;
@@ -528,6 +637,149 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
   return 0;
 }
 
+/**
+ * iec_send_talk_handler - handle an outgoing TALK request 
+ * @cmd: command byte received from the bus
+ *
+ * This function handles a talk request to the device.
+ */
+static uint8_t iec_send_talk_handler(const uint8_t cmd) {
+  int16_t c;
+  buffer_t *buf;
+
+  uart_putc('T');
+
+  buf = find_buffer(cmd & 0x0f);
+
+  /* Abort if there is no buffer or it's not open for writing */
+  /* and it isn't an OPEN command                             */
+  if ((buf == NULL || !buf->write) && (cmd & 0xf0) != 0xf0) {
+    uart_putc('c');
+    iec_data.bus_state = BUS_CLEANUP;
+    return 1;
+  }
+
+  while (1) {
+    c = iec_getc();
+    if (c < 0) return 1;
+
+    if ((cmd & 0x0f) == 0x0f || (cmd & 0xf0) == 0xf0) {
+      if (command_length < CONFIG_COMMAND_BUFFER_SIZE)
+        command_buffer[command_length++] = c;
+      if (iec_data.iecflags & EOI_RECVD)
+        // Filenames are just a special type of command =)
+        iec_data.iecflags |= COMMAND_RECVD;
+    } else {
+      /* Flush buffer if full */
+      if (buf->mustflush) {
+        if (buf->refill(buf))
+          return 1;
+        /* Search the buffer again, it can change when using large buffers. */
+        buf = find_buffer(cmd & 0x0f);
+      }
+
+      buf->data[buf->position] = c;
+      mark_buffer_dirty(buf);
+
+      if (buf->lastused < buf->position)
+        buf->lastused = buf->position;
+      buf->position++;
+
+      /* Mark buffer for flushing if position wrapped */
+      if (buf->position == 0)
+        buf->mustflush = 1;
+
+      /* REL files must be syncronized on EOI */
+      if(buf->recordlen && (iec_data.iecflags & EOI_RECVD))
+        if (buf->refill(buf))
+          return 1;
+    }
+    if (iec_data.iecflags & EOI_RECVD) {
+      printf("HELLO EOI %d\n", buf->position);
+        if (buf->refill(buf))
+          return 1;
+        return 0;
+    }
+  }
+}
+
+/**
+ * iec_send_listen_handler - handle an outgoing LISTEN request
+ * @cmd: command byte received from the bus
+ *
+ * This function handles a listen request to the device.
+ */
+static uint8_t iec_send_listen_handler(uint8_t cmd) {
+  buffer_t *buf;
+
+  uart_putc('L');
+
+  if ((cmd & 0x0f) == 0x0f || (cmd & 0xf0) == 0xf0) {
+    for (int i = 0; i < command_length; i++) {
+      uint8_t finalbyte = i + 1 == command_length;
+      uint8_t res;
+      res = iec_putc(command_buffer[i], finalbyte);
+      if (res) {
+        uart_putc('Q');
+        return 1;
+      }
+    }
+    return 0;
+  }
+
+  buf = find_buffer(cmd & 0x0f);
+  if (buf == NULL)
+    return 0; /* 0 because we didn't change the state here */
+
+  if (!buf->read && buf->refill(buf)) {
+    // Initial refill
+    iec_data.bus_state = BUS_CLEANUP;
+    return 1;
+  }
+
+  while (buf->read) {
+    do {
+      uint8_t finalbyte = (buf->position == buf->lastused);
+      uint8_t res;
+
+      if (finalbyte && buf->sendeoi) {
+        /* Send with EOI */
+        res = iec_putc(buf->data[buf->position], 1);
+
+        if (res) {
+          uart_putc('Q');
+          return 1;
+        }
+      } else {
+        /* Send without EOI */
+        res = iec_putc(buf->data[buf->position], 0);
+
+        if (res) {
+          uart_putc('V');
+          return 1;
+        }
+      }
+    } while (buf->position++ < buf->lastused);
+
+    if (buf->sendeoi &&
+        (cmd & 0x0f) != 0x0f &&
+        !buf->recordlen &&
+        buf->refill != directbuffer_refill) {
+      buf->read = 0;
+      break;
+    }
+
+    if (buf->refill(buf)) {
+      iec_data.bus_state = BUS_CLEANUP;
+      return 1;
+    }
+
+    /* Search the buffer again, it can change when using large buffers */
+    buf = find_buffer(cmd & 0x0f);
+  }
+
+  return 0;
+}
 
 
 /* ------------------------------------------------------------------------- */
@@ -545,7 +797,7 @@ void iec_init(void) {
   /* Read the hardware-set device address */
   device_hw_address_init();
   delay_ms(1);
-  device_address = device_hw_address();
+  // device_address = device_hw_address();
 }
 
 void bus_init(void) __attribute__((weak, alias("iec_init")));
@@ -558,9 +810,8 @@ void iec_mainloop(void) {
   iec_data.bus_state = BUS_IDLE;
 
   while (1) {
-    printf("%lld STATE %d %-15s %d %-10s ATN %d CLOCK %d DATA %d\n",timestamp_us(),iec_data.bus_state, 
-    state2str(iec_data.bus_state), iec_data.device_state, dstate2str(iec_data.device_state),
-    digitalRead(m_atnPin), digitalRead(m_clockPin), digitalRead(m_dataPin));
+    debug_state();
+  
     switch (iec_data.bus_state) {
     case BUS_SLEEP:
       set_atn_irq(0);
@@ -584,7 +835,8 @@ void iec_mainloop(void) {
       /* Wait for ATN */
       parallel_set_dir(PARALLEL_DIR_IN);
       set_atn_irq(1);
-      while (IEC_ATN) {
+      while (IEC_ATN && iec_data.bus_state == BUS_IDLE) {
+#ifdef KEY_NEXT
         if (key_pressed(KEY_NEXT | KEY_PREV | KEY_HOME)) {
           change_disk();
         } else if (key_pressed(KEY_SLEEP)) {
@@ -595,10 +847,12 @@ void iec_mainloop(void) {
           display_service();
           reset_key(KEY_DISPLAY);
         }
+#endif
         system_sleep();
       }
 
-      if (iec_data.bus_state != BUS_SLEEP)
+      // if (iec_data.bus_state != BUS_SLEEP)
+      if (!IEC_ATN)
         iec_data.bus_state = BUS_FOUNDATN;
       break;
 
@@ -636,8 +890,8 @@ void iec_mainloop(void) {
         break;
       }
 
-      printf("%lld ATNCMD %02x %-15s secondary %d  :",timestamp_us(),cmd,atncmd2str(cmd),cmd&0xf); 
-
+      debug_atn_command("RECV", cmd);
+      
       uart_putc('A');
       uart_puthex(cmd);
       uart_putcrlf();
@@ -650,12 +904,14 @@ void iec_mainloop(void) {
         if (iec_data.device_state == DEVICE_TALK)
           iec_data.device_state = DEVICE_IDLE;
         iec_data.bus_state = BUS_ATNFINISH;
-      } else if (cmd == 0x40+device_address) { /* Talk */
+      } else if ((cmd & 0xE0) == 0x40 && is_hw_address(cmd & 0x1f)) { /* Talk */
         iec_data.device_state = DEVICE_TALK;
         iec_data.bus_state = BUS_FORME;
-      } else if (cmd == 0x20+device_address) { /* Listen */
+        iec_data.device_address = cmd & 0x1f;
+      } else if ((cmd & 0xE0) == 0x20 && is_hw_address(cmd & 0x1f)) { /* Listen */
         iec_data.device_state = DEVICE_LISTEN;
         iec_data.bus_state = BUS_FORME;
+        iec_data.device_address = cmd & 0x1f;
       } else if ((cmd & 0x60) == 0x60) {
         /* Check for OPEN/CLOSE/DATA */
         /* JiffyDOS uses a slightly modified protocol for LOAD that */
@@ -805,10 +1061,77 @@ void iec_mainloop(void) {
 
       iec_data.bus_state = BUS_IDLE;
       break;
-    }
 
-    if (!socket_loop()) {
-      return;
+    // Host mode
+
+    case BUS_SENDATN:
+
+      iec_data.device_address = 8;
+      iec_data.secondary_address = 0; // load
+        setbuf(stdout, 0);
+
+
+      // ATN_CODE_LISTEN, 8
+      // ATN_CODE_OPEN, 0
+      if (iec_atn_putc(0x28, 0xf0, 0)) {
+        printf("PAH1\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+ 
+      // send filename...
+      strcpy((char*)command_buffer, "$");
+      command_length = strlen((char*)command_buffer);
+      if (iec_send_listen_handler(0xf0)) {
+        printf("PAH2\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+
+      // ATN_CODE_TALK, 8
+      // ATN_CODE_DATA, 0
+      if (iec_atn_putc(0x48, 0x60, 0)) {
+        printf("PAH3\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+
+      if (iec_start_listening()) {
+        printf("PAH31\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+
+      // FIXME open_file, allocate buffer
+      file_open(1); // like save
+      if (iec_send_talk_handler(0x61)) {
+        printf("PAH4\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+      file_close(1); // like save
+
+      // ATN_CODE_UNTALK
+      if (iec_atn_putc(0x5f, 0, 0)) {
+        printf("PAH5\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+      if (iec_end_listening()) {
+        printf("PAH51\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+
+      // ATN_CODE_LISTEN, 8
+      // ATN_CODE_CLOSE, 0
+      // ATN_CODE_UNLISTEN
+      if (iec_atn_putc(0x28, 0xe0, 0x3f)) {
+        printf("PAH6\n");
+        iec_data.bus_state = BUS_CLEANUP;
+        break;
+      }
+      iec_data.bus_state = BUS_CLEANUP;
     }
 
   }

@@ -22,27 +22,23 @@
 #define VERSION "0.1"
 #define LONGVERSION "IECGW 0.1"
 
-#define iec_interrupts_init()
-#define set_atn_irq(x)
-#define IEC_ATN_HANDLER void iec_atn_handler(void)
-
 typedef uint8_t iec_bus_t;
 
 extern uint8_t command_buffer[CONFIG_COMMAND_BUFFER_SIZE + 2];
 extern uint8_t command_length;
 
+void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *data, size_t len);
+
 void device_hw_address_init();
-uint8_t device_hw_address();
+// uint8_t device_hw_address();
+uint8_t is_hw_address(uint8_t addr);
 void parse_doscommand(void);
 void file_open(uint8_t secondary);
 void file_close(uint8_t secondary);
-uint8_t socket_loop();
+uint8_t iecgw_loop();
 
 #define system_sleep(x) \
-    if (!socket_loop()) \
-    {                   \
-        return;         \
-    }
+    if (iecgw_loop()) break;
 
 // GPIO
 
@@ -89,6 +85,7 @@ static inline void writePIN(uint8_t pinNumber, uint8_t state)
     if (state)
     {
         pinMode(pinNumber, INPUT);
+        //pullUpDnControl(pinNumber, PUD_UP);
         // Pulled up
     }
     else
@@ -114,6 +111,20 @@ static inline uint8_t iec_input()
 {
     uint8_t ret = ((IEC_ATN ? IEC_BIT_ATN : 0) | (IEC_DATA ? IEC_BIT_DATA : 0) | (IEC_CLOCK ? IEC_BIT_CLOCK : 0));
     return ret;
+}
+
+#define iec_interrupts_init()
+//#define set_atn_irq(x)
+#define IEC_ATN_HANDLER void iec_atn_handler(void)
+void iec_atn_handler(void);
+
+static inline void set_atn_irq(uint8_t state) {
+  if (state) {
+      // Does not work properly
+      //wiringPiISR (m_atnPin, INT_EDGE_BOTH,  iec_atn_handler);
+  } else {
+      //wiringPiISR (m_atnPin, INT_EDGE_BOTH,  0);
+  }
 }
 
 // Timing
@@ -180,7 +191,7 @@ uint8_t dolphin_putc(uint8_t data, uint8_t with_eoi);
 
 #define directbuffer_refill ((void*)1)
 
-static inline uint8_t d64_bam_commit(void) {}
+static inline uint8_t d64_bam_commit(void) { return 0; }
 inline void change_disk(void) {}
 
 

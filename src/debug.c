@@ -5,6 +5,17 @@
 #include "debug.h"
 #include "iec.h"
 
+void debug_state() {
+    printf("%lld STATE %d %-15s %d %-10s ATN %d CLOCK %d DATA %d\n",timestamp_us(),iec_data.bus_state, 
+    state2str(iec_data.bus_state), iec_data.device_state, dstate2str(iec_data.device_state),
+    digitalRead(m_atnPin), digitalRead(m_clockPin), digitalRead(m_dataPin));
+}
+
+void debug_atn_command(char *message, uint8_t cmd1) {
+  printf("%lld %s ATNCMD %02x %-15s dev/sec %d\n", timestamp_us(),message,cmd1,atncmd2str(cmd1),cmd1&0x1f); 
+}
+
+
 char *state2str(int bus_state)
 {
   switch (bus_state)
@@ -27,6 +38,8 @@ char *state2str(int bus_state)
     return "BUS_ATNPROCESS";
   case BUS_CLEANUP:
     return "BUS_CLEANUP";
+  case BUS_SENDATN:
+    return "BUS_SENDATN";
   }
   return "UNKNOWN STATE";
 }
@@ -41,6 +54,10 @@ char *dstate2str(int device_state)
     return "DEVICE_LISTEN";
   case DEVICE_TALK:
     return "DEVICE_TALK";
+  case HOST_LISTEN:
+    return "HOST_LISTEN";
+  case HOST_TALK:
+    return "HOST_TALK";
   }
   return "UNKNOWN STATE";
 }
@@ -64,9 +81,10 @@ char *atncmd2str(int cmd)
   case 0xF0:
     return "ATN_CODE_OPEN";
   };
+  return "UNKNOWN CMD";
 }
 
-void debugPrint(const char *msg, const char *p, size_t size)
+void debug_print_buffer(const char *msg, unsigned const char *p, size_t size)
 {
   printf("%lld %s [%d] '", timestamp_us(), msg, size);
   for (int i = 0; i < size; i++)
