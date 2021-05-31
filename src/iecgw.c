@@ -1,3 +1,7 @@
+/*
+ * Socket server
+*/
+
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -11,129 +15,119 @@
 #include "debug.h"
 #include "arch-config.h"
 
-int socket_write(int fd, char c);
-int socket_write_buf(int fd, uint8_t *buf, size_t len);
-int socket_available(int fd);
-int socket_read(int fd);
-int socket_read_buf(int fd, uint8_t *buf, size_t len);
+//static int socket_write(int fd, char c);
+static int socket_write_buf(int fd, uint8_t *buf, size_t len);
+//static int socket_available(int fd);
+//static int socket_read(int fd);
+//static int socket_read_buf(int fd, uint8_t *buf, size_t len);
 static int socket_accept(int fd);
 
-static int socket_write_msg(int fd, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size);
-static int socket_read_msg(int fd, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size);
-
 static int serverfd;
-static int socketfds[32];
-
-void device_hw_address_init()
-{
-}
-
-uint8_t iecgw_is_connected(uint8_t device_address) {
-  if (socketfds[device_address] < 0) {
-    printf("Address %d is not connected1\n", device_address);
-    return 0;
-  }
-  return 1;
-}
-
-int iecgw_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
-{
-  if (socketfds[device_address] < 0) {
-    printf("Address %d is not connected2\n", device_address);
-    return -1;
-  }
-  return socket_write_msg(socketfds[device_address], cmd, secondary, buffer, size);
-}
-
-int iecgw_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size)
-{
-  if (socketfds[device_address] < 0) {
-    printf("Address %d is not connected3\n", device_address);
-    return -1;
-  }
-  return socket_read_msg(socketfds[device_address], cmd, secondary, buffer, size);
-}
 
 void doflush() {
   fflush(stdout);
 }
 
-
-static int counter1 = 0, counter2 = 0;
-
-uint8_t iecgw_loop()
+#ifndef SINGLE_PROCESS
+static int to_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
 {
-  if (counter1 == 0) {
-      fflush(stdout);
+  // Waith for previous message to be handled
+  if (common->to_iec_command.cmd) {
+    printf("%lld* SEND IEC WAIT\n", timestamp_us());
+    while (common->to_iec_command.cmd) {
+    }
+    printf("%lld* SEND IEC WAIT END\n", timestamp_us());
   }
-
-  if (counter1++ == 1000000)
-  {
-    putchar((counter2 % 40 >= 20) ? '+' : '-');
-    if (counter2 % 20 == 19)
-    {
-      putchar('\r');
-    }
-    ++counter2;
-    counter2 = counter2 % 40;
-    counter1 = 0;
-  }
-
-  {
-    fd_set rfds;
-    struct timeval tv = {0, 0};
-    int retval;
-    int maxfd = serverfd;
-    FD_ZERO(&rfds);
-    FD_SET(serverfd, &rfds);
-    for (int i = 0; i < 32; i++) {
-      if (socketfds[i] >= 0) {
-        FD_SET(socketfds[i], &rfds);
-        if (socketfds[i] > maxfd) {
-          maxfd = socketfds[i];
-        }
-      }
-    }
-    retval = select(maxfd + 1, &rfds, NULL, NULL, &tv);
-    if (retval == -1)
-    {
-      perror("socket_available");
-      return 0;
-    }
-    if (FD_ISSET(serverfd, &rfds)) {
-      /* Accept actual connection from the client */
-      socket_accept(serverfd);
-      fflush(stdout);
-    }
-    for (int i = 0; i < 32; i++) {
-      if (socketfds[i] >= 0 && FD_ISSET(socketfds[i], &rfds)) {
-        uint8_t cmd;
-        uint8_t secondary, data[256];
-        size_t len = 256;
-        // FIXME blocking read
-        printf("READING %d\n", i);
-        fflush(stdout);
-        int l = socket_read_msg(socketfds[i], &cmd, &secondary, data, &len);
-        if (l == -1)
-        {
-          close(socketfds[i]);
-          socketfds[i] = -1;
-          printf("%lld DISCONNECTED\n", timestamp_us());
-          return 1;
-        }
-        data[len] = 0;
-        printf("GOT %d %d %d [%d]\n", l, cmd, secondary, len);
-        debug_print_buffer("iecgw_loop", data, len);
-        process_iecgw_msg(i, cmd, secondary, data, len);
-        fflush(stdout);
-      }
-    }
-  }
-
-  if (counter1 % 10000 == 0);
+  common->to_iec_command.device_address = device_address;
+  common->to_iec_command.secondary = secondary;
+  common->to_iec_command.size = size;
+  memcpy (common->to_iec_command.data, buffer, size);
+  common->to_iec_command.cmd = cmd;
+  //printf("%lld* SEND IEC WAIT\n", timestamp_us());
+  //while (common->to_iec_command.cmd) {
+  //}
+  //printf("%lld* SEND IEC WAIT END\n", timestamp_us());
   return 0;
 }
 
+uint8_t iecgw_loop()
+{
+  printf("%lld* ACCEPTING\n", timestamp_us());
+  while (1) {
+    // Receive message from IEC
+    if (common->from_iec_command.cmd) {
+      uint8_t device_address = common->from_iec_command.device_address;
+      if (common->socketfds[device_address] < 0) {
+        printf("%lld* Address %d is not connected3\n", timestamp_us(), device_address);
+      } else {
+        socket_write_msg(common->socketfds[device_address], 
+        common->from_iec_command.cmd, 
+        common->from_iec_command.secondary, 
+        common->from_iec_command.data, 
+        common->from_iec_command.size);
+      }
+      common->from_iec_command.cmd = 0; // ACK
+    }
+
+    handle_socket();
+  }
+}
+#endif
+
+uint8_t handle_socket() {
+  fd_set rfds;
+  struct timeval tv = {0, 100};
+  int retval;
+  int maxfd = serverfd;
+  FD_ZERO(&rfds);
+  FD_SET(serverfd, &rfds);
+  for (int i = 0; i < 32; i++) {
+    if (common->socketfds[i] >= 0) {
+      FD_SET(common->socketfds[i], &rfds);
+      if (common->socketfds[i] > maxfd) {
+        maxfd = common->socketfds[i];
+      }
+    }
+  }
+  retval = select(maxfd + 1, &rfds, NULL, NULL, &tv);
+  if (retval == -1)
+  {
+    perror("socket_available");
+    return 0;
+  }
+  if (FD_ISSET(serverfd, &rfds)) {
+    /* Accept actual connection from the client */
+    socket_accept(serverfd);
+  }
+  for (int i = 0; i < 32; i++) {
+    if (common->socketfds[i] >= 0 && FD_ISSET(common->socketfds[i], &rfds)) {
+      uint8_t cmd;
+      uint8_t secondary, data[256];
+      size_t len = 256;
+      // TODO remove blocking read
+      // printf("%lld* READING %d\n", timestamp_us(), i);
+      int l = socket_read_msg(common->socketfds[i], &cmd, &secondary, data, &len);
+      if (l == -1)
+      {
+        close(common->socketfds[i]);
+        common->socketfds[i] = -1;
+        printf("%lld* DISCONNECTED\n", timestamp_us());
+        return 1;
+      }
+      data[len] = 0;
+      printf("%lld* SOCKET RECV cmd:%d sec:%d [%d]\n", timestamp_us(), cmd, secondary, len);
+      //debug_print_buffer("iecgw_loop", data, len);
+#ifdef SINGLE_PROCESS
+      process_iecgw_msg(i, cmd, secondary, data, len);
+#else
+      to_iec_write_msg(i, cmd, secondary, data, len);
+#endif
+    }
+  }
+  return 0;
+}
+
+/*-
 int socket_available(int fd)
 {
   fd_set rfds;
@@ -149,8 +143,9 @@ int socket_available(int fd)
   }
   return FD_ISSET(fd, &rfds);
 }
+*/
 
-static int socket_read_msg(int fd, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size)
+int socket_read_msg(int fd, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size)
 {
   ssize_t l = read(fd, cmd, 1);
   if (l < 1) goto errorout;
@@ -179,6 +174,7 @@ static int socket_read_msg(int fd, uint8_t *cmd, uint8_t *secondary, uint8_t *bu
     return -1;
 }
 
+/*
 int socket_read(int fd)
 {
   char buf[1];
@@ -205,8 +201,9 @@ int socket_read_buf(int fd, uint8_t *buf, size_t len)
   }
   return len;
 }
+*/
 
-static int socket_write_msg(int fd, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
+int socket_write_msg(int fd, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
 {
   ssize_t l = write(fd, &cmd, 1);
   if (l < 1) goto errorout;
@@ -220,6 +217,7 @@ static int socket_write_msg(int fd, uint8_t cmd, uint8_t secondary, uint8_t *buf
     return -1;
 }
 
+/*-
 int socket_write(int fd, char c)
 {
   ssize_t l = write(fd, &c, 1);
@@ -230,6 +228,7 @@ int socket_write(int fd, char c)
   }
   return 1;
 }
+*/
 
 int socket_write_buf(int fd, uint8_t *buf, size_t len)
 {
@@ -252,7 +251,7 @@ int iecgw_init()
   struct sockaddr_in serv_addr;
 
   for (int i = 0; i < 32; i++) {
-      socketfds[i] = -1;
+      common->socketfds[i] = -1;
   }
 
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -294,7 +293,7 @@ static int socket_accept(int fd) {
       perror("accept");
       return 1;
     }
-    printf("%lld ACCEPTED\n", timestamp_us());
+    printf("%lld* ACCEPTED\n", timestamp_us());
   
     char const *str = "iecgw server";
     int n = socket_write_msg(newsockfd, 'I', 0, (uint8_t *)str, strlen(str));
@@ -313,18 +312,18 @@ static int socket_accept(int fd) {
     if (l < 0 || cmd != 'I' || device_address > 31)
     {
       // Go away. Didn't know the magic word
-      printf("%lld protocol error\n", timestamp_us());
+      printf("%lld* protocol error\n", timestamp_us());
       close(newsockfd);
       return 1;
     }
-    if (socketfds[device_address] >= 0) {
-      printf("%lld already allocated %d\n", timestamp_us(), device_address);
+    if (common->socketfds[device_address] >= 0) {
+      printf("%lld* already allocated %d\n", timestamp_us(), device_address);
       close(newsockfd);
       return 1;
     }
 
-    printf("%lld DEVICE %d\n", timestamp_us(), (int)device_address);
-    socketfds[device_address] = newsockfd;
+    printf("%lld* DEVICE %d\n", timestamp_us(), (int)device_address);
+    common->socketfds[device_address] = newsockfd;
 
     return 0;
 }

@@ -27,18 +27,16 @@ typedef uint8_t iec_bus_t;
 extern uint8_t command_buffer[CONFIG_COMMAND_BUFFER_SIZE + 2];
 extern uint8_t command_length;
 
-void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *data, size_t len);
-
 void device_hw_address_init();
 // uint8_t device_hw_address();
 uint8_t is_hw_address(uint8_t addr);
 void parse_doscommand(void);
 void file_open(uint8_t secondary);
 void file_close(uint8_t secondary);
-uint8_t iecgw_loop();
+uint8_t check_input();
 
 #define system_sleep(x) \
-    if (iecgw_loop()) break;
+    if (check_input()) break;
 
 // GPIO
 

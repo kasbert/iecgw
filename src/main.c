@@ -1,183 +1,66 @@
 
-#include <unistd.h>
-#include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <fcntl.h>
 #define __USE_GNU
 #include <sched.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/mman.h>
 #include <signal.h>
 
 #include "arch-config.h"
 #include "buffers.h"
 #include "iec.h"
-#include "errormsg.h"
 #include "iecgw.h"
-#include "debug.h"
-
-uint8_t current_device_address;
 
 static void setup_realtimeish();
 void gpio_init();
 
-void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *data, size_t len) {
-  switch (cmd)
-  {
-    case 'x':
-      iec_data.bus_state = BUS_SENDATN;
-    return ;
-  }
-}
-
-uint8_t is_hw_address(uint8_t device_address) {
-  // Set current address as a side effect
-  current_device_address = device_address;
-  return iecgw_is_connected(device_address);
-}
-
-
-void parse_doscommand(void)
-{
-  debug_print_buffer("parse_doscommand", command_buffer, command_length);
-  iecgw_write_msg(current_device_address, 'P', 0x0f, command_buffer, command_length);
-}
-
-uint8_t load_refill(buffer_t *buf)
-{
-  uint8_t secondary = buf->secondary;
-  printf("%lld load_refill secondary %d\n", timestamp_us(), secondary);
-
-  iecgw_write_msg(current_device_address, 'R', secondary, 0, 0);
-  fflush(stdout); // We have time for this
-
-  uint8_t cmd;
-  size_t len = 256;
-
-  int l = iecgw_read_msg(current_device_address, &cmd, &secondary, buf->data, &len);
-  if (l < 0)
-  {
-    set_error(ERROR_IMAGE_INVALID);
-    return -1;
-  }
-  if (cmd == ':')
-  {
-    set_error(buf->data[0]);
-    return -1;
-  }
-  if (cmd != 'E' && cmd != 'B')
-  {
-    printf("%lld load_refill protocol error %d\n", timestamp_us(), cmd);
-    set_error(ERROR_IMAGE_INVALID);
-    return -1;
-  }
-
-  buf->position = 0;
-  buf->lastused = len - 1;
-  buf->read = 1;
-  if (cmd == 'E')
-  {
-    printf("%lld load_refill final %d\n", timestamp_us(), len);
-    buf->sendeoi = 1;
-    unstick_buffer(buf);
-    //buf->read = 0;
-    return 0;
-  }
-  printf("%lld load_refill ok %d\n", timestamp_us(), len);
-  return 0;
-}
-
-uint8_t save_refill(buffer_t *buf)
-{
-  uint8_t secondary = buf->secondary;
-  printf("%lld save_refill secondary %d [%d]\n", timestamp_us(), secondary, (uint8_t)(buf->position - 2));
-
-  iecgw_write_msg(current_device_address, 'W', secondary, buf->data + 2, buf->position - 2);
-  buf->position = 2;
-  buf->lastused = -1;
-  buf->write = 1;
-  buf->mustflush = 0;
-
-  return 0;
-}
-
-void file_open(uint8_t secondary)
-{
-  debug_print_buffer("file_open", command_buffer, command_length);
-
-  buffer_t *buf;
-
-  iecgw_write_msg(current_device_address, 'O', secondary, command_buffer, command_length);
-
-  set_error(ERROR_OK);
-
-  /* If the secondary is already in use, close the existing buffer */
-  buf = find_buffer(secondary);
-  if (buf != NULL)
-  {
-    /* FIXME: What should we do if an error occurs? */
-    cleanup_and_free_buffer(buf);
-  }
-  buf = alloc_buffer();
-  if (!buf)
-    return;
-
-  //uart_trace(command_buffer,0,command_length);
-  buf->secondary = secondary;
-  buf->lastused = 0;
-  buf->sendeoi = 0;
-  buf->position = 0;
-  if (secondary == 1) {
-    // FIXME add support for SEQ write, too    
-    buf->read = 0;
-    buf->write = 1;
-    buf->refill = save_refill;
-    buf->position = 2;
-    buf->lastused = 255;
-    buf->recordlen = 254;
-  } else {
-    buf->read = 0; // Will be set on load_refill
-    buf->write = 0;
-    buf->refill = load_refill;
-  }
-  stick_buffer(buf);
-
-  //remote_refill(buf); // Too slow
-}
-
-void file_close(uint8_t secondary)
-{
-  printf("%lld file_close %d\n", timestamp_us(), secondary);
-  iecgw_write_msg(current_device_address, 'C', secondary, 0, 0);
-}
-
 int main(int argc, char **argv)
 {
-  char stdout_buffer[4096];
-  setup_realtimeish();
+  common = mmap(NULL, sizeof(*common), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+  memset(common, 0, sizeof (*common));
 
-  wiringPiSetup();
+#ifndef SINGLE_PROCESS
+  switch (fork()) {
+    default: // Parent, socket process
+#endif
+      signal(SIGPIPE, SIG_IGN);
+      // TODO wait child death
 
-  signal(SIGPIPE, SIG_IGN);
+      if (iecgw_init()) {
+        exit(EXIT_FAILURE);
+      }
+#ifndef SINGLE_PROCESS
+      iecgw_loop();
+      break;
 
-  // Make stdout buffered, so we may happily use printf
-  setvbuf(stdout, stdout_buffer, _IOFBF, sizeof(stdout_buffer));
+    case 0: // Child, IEC process
+#endif
+    {
+      char stdout_buffer[8192];
+      // Make stdout buffered, so we may happily use printf
+      setvbuf(stdout, stdout_buffer, _IOFBF, sizeof(stdout_buffer));
+      setup_realtimeish();
 
-  if (iecgw_init()) {
-    exit(EXIT_FAILURE);
+      wiringPiSetup();
+
+      buffers_init();
+      gpio_init();
+
+      iec_init();
+      iec_mainloop();
+    }
+#ifndef SINGLE_PROCESS
+    break;
+
+    case -1: // erorr
+      perror("fork");
+      break;
+
   }
-
-  buffers_init();
-  gpio_init();
-
-  iec_init();
-
-  printf("%lld ACCEPTING\n", timestamp_us());
-  fflush(stdout);
-
-  iec_mainloop();
+#endif
 }
 
 void setup_realtimeish()
