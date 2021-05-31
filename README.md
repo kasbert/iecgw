@@ -13,10 +13,10 @@ Gateway to Commodore IEC world
  * Full linux networking and services
  * Easyish python server code
 
-IEC code copied from SD2IEC https://www.sd2iec.de/
-Hardware is like Pi1541 https://cbm-pi1541.firebaseapp.com/
-Some ideas from uno2iec https://github.com/Larswad/uno2iec
-Python d64 code frpm ... svn ...
+> IEC code copied from SD2IEC https://www.sd2iec.de/
+> Hardware is like Pi1541 https://cbm-pi1541.firebaseapp.com/
+> Some ideas from uno2iec https://github.com/Larswad/uno2iec
+> Python d64 code from https://eden.mose.org.uk/gitweb/?p=python-d64.git;a=summary
 
 # Socket Protocol
 
@@ -27,30 +27,31 @@ All socket messages consists of 3-257 bytes
  * 0-255 bytes data
 
 ## IEC ->
-I Initialize
+ * I Initialize.
+    Expects response
+ * P Dos command. Same as Open.
+ * O Open
+ * C Close
+ * R Read.
   Expects response
-P Dos command. Same as Open.
-O Open
-C Close
-R Read
-  Expects response
-W Write
-D Debug
+ * W Write
+ * D Debug
 
 ## -> IEC
-I Initialize response for Initialize
+ * I Initialize response for Initialize.
     secondary/device is the device number to be used
-: Error status for Read
-B Bytes response for Read
-E Bytes response for Read with end of file
-
+ * : Error status for Read
+ * B Bytes response for Read
+ * E Bytes response for Read with end of file
 
 # Requirements
-cd src
-make
-sudo ./iecgw
+> pip3 install ... cbm f64
 
-pip3 install ... cbm f64
+> cd src
+> make
+> sudo ./iecgw
+> cd ..
+> ./server.py
 
 # TODO
  * Add leds
