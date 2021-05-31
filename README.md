@@ -13,10 +13,12 @@ Gateway to Commodore IEC world
  * Full linux networking and services
  * Easyish python server code
 
-> IEC code copied from SD2IEC https://www.sd2iec.de/
-> Hardware is like Pi1541 https://cbm-pi1541.firebaseapp.com/
-> Some ideas from uno2iec https://github.com/Larswad/uno2iec
-> Python d64 code from https://eden.mose.org.uk/gitweb/?p=python-d64.git;a=summary
+```
+IEC code copied from SD2IEC https://www.sd2iec.de/
+Hardware is like Pi1541 https://cbm-pi1541.firebaseapp.com/
+Some ideas from uno2iec https://github.com/Larswad/uno2iec
+Python d64 code from https://eden.mose.org.uk/gitweb/?p=python-d64.git;a=summary
+```
 
 # Socket Protocol
 
@@ -45,13 +47,15 @@ All socket messages consists of 3-257 bytes
  * E Bytes response for Read with end of file
 
 # Requirements
-> pip3 install ... cbm f64
+```
+pip3 install ... cbm f64
 
-> cd src
-> make
-> sudo ./iecgw
-> cd ..
-> ./server.py
+cd src
+make
+sudo ./iecgw
+cd ..
+./server.py
+```
 
 # TODO
  * Add leds
