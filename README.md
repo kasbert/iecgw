@@ -1,29 +1,59 @@
 # iecgw
 Gateway to Commodore IEC world
 
+![Img](img/iecgw.png)
+
  * No fastloaders
  * Unreliable
  * Limited support for 1541 dos functions
  * Simple pi1541 hardware
- * OragePi Zero with armbian. Might work with others, too
+ * OragePi Zero with Armbian. Might work with others, too
  * No Raspberry Pi Zero. Needs multicore.
  * Realtime-ish setup in user space, with a dedicated cpu
  * Full linux networking and services
  * Easyish python server code
-
-TODO
- * Add leds
- * Add 1541/sd2iec dos commands
- * Host mode
 
 IEC code copied from SD2IEC https://www.sd2iec.de/
 Hardware is like Pi1541 https://cbm-pi1541.firebaseapp.com/
 Some ideas from uno2iec https://github.com/Larswad/uno2iec
 Python d64 code frpm ... svn ...
 
+# Socket Protocol
 
+All socket messages consists of 3-257 bytes
+ * 1 byte command
+ * 1 byte secondary/device
+ * 1 bytes data length
+ * 0-255 bytes data
+
+## IEC ->
+I Initialize
+  Expects response
+P Dos command. Same as Open.
+O Open
+C Close
+R Read
+  Expects response
+W Write
+D Debug
+
+## -> IEC
+I Initialize response for Initialize
+    secondary/device is the device number to be used
+: Error status for Read
+B Bytes response for Read
+E Bytes response for Read with end of file
+
+
+# Requirements
 cd src
 make
 sudo ./iecgw
 
 pip3 install ... cbm f64
+
+# TODO
+ * Add leds
+ * Add 1541/sd2iec dos commands
+ * Host mode
+
