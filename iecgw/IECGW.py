@@ -17,7 +17,17 @@ class IECGW:
         self.s.sendall(data)
         print('>', repr(data))
 
-    def iecSendMsg(self, cmd, secondary, data):
+    def iecSendMsg(self, msg):
+        data = msg.data
+        if isinstance(data, int):
+            data = bytes([data])
+        header = pack('cBB', msg.cmd, msg.secondary, len(data))
+        self.s.sendall(header)
+        if len(data) > 0:
+            self.s.sendall(data)
+        print('>', repr(header), repr(data))
+
+    def iecSendMsg2(self, cmd, secondary, data):
         if isinstance(data, int):
             data = bytes([data])
         header = pack('cBB', cmd, secondary, len(data))
@@ -26,11 +36,29 @@ class IECGW:
             self.s.sendall(data)
         print('>', repr(header), repr(data))
 
+    def iecReadMsg(self):
+        data = self.iecRead(3)
+        if data == b'':
+            return None
+        cmd = chr(data[0])
+        secondary = data[1]
+        size = data[2]
+        data = b''
+        if size > 0:
+            data = self.iecRead(size)
+        msg = IECMessage(cmd, secondary, data)
+        return msg
+
     def iecRead(self, length):
-        # TODO receive all fragments
-        data = self.s.recv(length)
-        print('<', repr(data))
-        return data
+        buf = bytearray()
+        while len(buf) < length:
+            data = self.s.recv(length - len(buf))
+            if data == b'':
+                print('<*', repr(buf))
+                return None
+            buf += data
+        print('<', repr(buf))
+        return buf
 
     def iecReadUntil(self, char):
         buf = bytearray()
@@ -44,6 +72,11 @@ class IECGW:
         print('<', repr(buf))
         return buf
 
+class IECMessage:
+    def __init__(self, cmd, secondary, data):
+        self.cmd = cmd
+        self.secondary = secondary
+        self.data = data
 
 class C64File:
     def __init__(self, fh, filesize, filename):
@@ -68,6 +101,7 @@ class C64MemoryFile(C64File):
 
 __all__ = [
     "IECGW",
+    "IECMessage"
     "C64File",
     "C64MemoryFile",
 ]

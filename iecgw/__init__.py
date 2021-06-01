@@ -5,4 +5,5 @@ from .D64Node import D64Node
 from .CSDBNode import CSDBNode
 
 from .IECGW import IECGW
+from .IECGW import IECMessage
 from .IECGW import C64MemoryFile

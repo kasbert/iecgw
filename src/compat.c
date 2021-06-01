@@ -57,6 +57,7 @@ uint8_t check_input() {
   static int counter1 = 0, counter2 = 0;
 #ifdef SINGLE_PROCESS
   handle_socket();
+  fflush(stdout);
 #else
   if (common->to_iec_command.cmd != 0) {
     printf("RECEIVED command %d\n", common->to_iec_command.cmd);
@@ -308,15 +309,15 @@ void device_hw_address_init() {
 
 void uart_putc(char c)
 {
-  // putchar(c);
+  putchar(c);
 }
 void uart_putcrlf(void)
 {
-  // putchar('\n');
+  putchar('\n');
 }
 void uart_puthex(uint8_t num)
 {
-  // printf("%02x", num);
+  printf("%02x", num);
 }
 
 // TODO add leds

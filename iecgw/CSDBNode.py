@@ -22,13 +22,17 @@ class CSDBNode:
         self.mapFiles()
         self.title_ = 'CSDB.DK'
         self.tempf = None
+        self.offset = 0
 
     def mapFiles(self):
         parser = MyHTMLParser()
         parser.files = []
         print ("OPEN", self.url)
-        webUrl  = urllib.request.urlopen(self.url)
-
+        try:
+            webUrl  = urllib.request.urlopen(self.url)
+        except: # TODO get code
+            print("Error")
+            return
         print ("result code: " + str(webUrl.getcode()))
         data = webUrl.read()
         #print (data)
@@ -38,7 +42,7 @@ class CSDBNode:
         print('TITLE', parser.title_)
         self.files = []
         self.title_ = parser.title_
-        for entry in parser.files[0:20]: # FIXME add paging
+        for entry in parser.files[0:50]:
             name = re.sub(r'^.*/', '', entry['name'])
             file = fileEntry(0, name, self.files)
             file['href'] = entry['href']
@@ -64,11 +68,18 @@ class CSDBNode:
             return self
         entry = matchFile(self.files, iecname)
         if entry is None:
+            if iecname == b'-- MORE --': # Next page
+                self.offset += 40
+                return self
             return None
         url = urljoin(self.url, entry['href'])
         if entry['extension'] == 'D64':
             print ("OPEN", url)
-            webUrl  = urllib.request.urlopen(url)
+            try:
+                webUrl  = urllib.request.urlopen(url)
+            except: # TODO get code
+                print("Error")
+                return None
             print ("result code: " + str(webUrl.getcode()))
             data = webUrl.read()
             tempf = tempfile.NamedTemporaryFile(prefix='d64-', dir='/tmp',
@@ -81,7 +92,11 @@ class CSDBNode:
             return node
         if entry['extension'] == 'ZIP':
             print ("OPEN", url)
-            webUrl  = urllib.request.urlopen(url)
+            try:
+                webUrl  = urllib.request.urlopen(url)
+            except: # TODO get code
+                print("Error")
+                return None
             print ("result code: " + str(webUrl.getcode()))
             data = webUrl.read()
             tempf = tempfile.NamedTemporaryFile(prefix='zip-', dir='/tmp',
@@ -98,7 +113,13 @@ class CSDBNode:
         return node
 
     def list(self):
-        return self.files
+        arr = self.files[self.offset:]
+        if len(arr) > 40:
+            entry = fileEntry(0, '-- more --', self.files)
+            entry['extension'] = 'DIR'
+            arr = arr[0:40]
+            arr.append(entry)
+        return arr
 
     def isdir(self, iecname):
         entry = matchFile(self.files, iecname)

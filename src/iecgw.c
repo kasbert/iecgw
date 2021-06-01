@@ -79,6 +79,10 @@ uint8_t handle_socket() {
   struct timeval tv = {0, 100};
   int retval;
   int maxfd = serverfd;
+#ifndef SINGLE_PROCESS
+  uint8_t status;
+#endif
+
   FD_ZERO(&rfds);
   FD_SET(serverfd, &rfds);
   for (int i = 0; i < 32; i++) {
@@ -112,6 +116,11 @@ uint8_t handle_socket() {
         close(common->socketfds[i]);
         common->socketfds[i] = -1;
         printf("%lld* DISCONNECTED\n", timestamp_us());
+#ifndef SINGLE_PROCESS
+        // In case we are reading and the fileserver crashed
+        status = 74; // DriveNotReady
+        to_iec_write_msg(i, ':', 15, &status, 1); 
+#endif
         return 1;
       }
       data[len] = 0;

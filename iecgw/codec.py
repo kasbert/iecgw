@@ -2,6 +2,7 @@
 from enum import Enum
 from d64.dos_path import DOSPath
 import itertools
+from struct import pack
 
 def toIEC(s):
     buf = bytearray()
@@ -60,7 +61,7 @@ def fromPETSCII(b):
         elif c >= 'A' and c <= 'Z':
             buf.append(c2 + 0x20)
         elif c2 >= 0xc0 and c2 <= 0xdf:
-            buf.append(c2 - 0x60)
+            buf.append(c2 - 0x80)
         else:
             buf.append(c2)
     return buf
@@ -80,6 +81,9 @@ def fileEntry(size, realname, files):
     if size > 65535:
         size = 65535
     name = realname
+    name = name.replace('?', '_')
+    name = name.replace('*', '_')
+    name = name.replace('=', '_')
     extension = ''
     if name.endswith('.prg') or name.endswith('.PRG'):
         extension = 'PRG'
@@ -104,6 +108,63 @@ def fileEntry(size, realname, files):
     entry = { 'size': size, 'name': name, 'extension': extension, 'real_name': realname}
     return entry
 
+def packDir(title, list, free):
+    print ("TITLE", title, free)
+    lname = b'\x12"' + title
+    while len(lname) < 18:
+        lname += b' '
+    lname += b'" 12 4A'
+ 
+    basicPtr = 0x0401
+    basicPtr += len(lname) + 5
+
+    dirdata = bytearray()
+    dirdata.extend(pack('<HHH', 0x401, basicPtr, 0))
+    dirdata.extend(lname)
+    dirdata.append(0)
+
+    for entry in list:
+        name = entry['name']
+        size = entry['size']
+        extension = entry['extension']
+        if extension == 'D64' or extension == 'ZIP':
+            extension = 'DIR'
+            size = 0
+        if extension == '':
+            extension = 'REL'
+        lname = bytearray()
+        lname.extend(b'"')
+        lname.extend(name)
+        lname.extend(b'" ')
+        while len(lname) < 19:
+            lname.append(ord(' '))
+        if size < 1000:
+            lname.insert(0, ord(' '))
+        if size < 100:
+            lname.insert(0, ord(' '))
+        if size < 10:
+            lname.insert(0, ord(' '))
+        lname.extend(extension.encode('latin1'))
+        while len(lname) < 27:
+            lname.append(ord(' '))
+
+        basicPtr += len(lname) + 5
+        dirdata.extend(pack('<HH', basicPtr, size))
+        dirdata.extend(lname)
+        dirdata.append(0)
+        if len(dirdata) > 32000:
+            break
+
+    lname = 'blocks free'
+    basicPtr += len(lname) + 5
+    dirdata.extend(pack('<HH', basicPtr, free))
+    dirdata.extend(toPETSCII(lname))
+    dirdata.append(0)
+
+    dirdata.append(0)
+    dirdata.append(0)
+    #print ('DIR DATA', repr(dirdata))
+    return dirdata
 
 class IOErrorMessage(Enum):
   ErrOK = 0
