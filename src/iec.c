@@ -54,6 +54,9 @@
 #include "iec.h"
 #include "debug.h"
 
+uint8_t load_refill(buffer_t *buf);
+uint8_t save_refill(buffer_t *buf);
+
 /* ------------------------------------------------------------------------- */
 /*  Global variables                                                         */
 /* ------------------------------------------------------------------------- */
@@ -159,12 +162,15 @@ static int16_t _iec_getc(void) {
     /* Check for JiffyDOS                                       */
     /*   Source: http://home.arcor.de/jochen.adler/ajnjil-t.htm */
     if (iec_data.bus_state == BUS_ATNACTIVE && i == 7) {
+#if 0
       start_timeout(218);
+#endif
 
       do {
         tmp = iec_bus_read();
 
         /* If there is a delay before the last bit, the controller uses JiffyDOS */
+#if 0
         if (!(iec_data.iecflags & JIFFY_ACTIVE) && has_timed_out()) {
             printf ("JIFFY?\n");
           // if ((val>>1) < 0x60 && ((val>>1) & 0x1f) == device_address) {
@@ -177,6 +183,7 @@ static int16_t _iec_getc(void) {
             printf ("JIFFY!\n");
           }
         }
+#endif
       } while (!(tmp & IEC_BIT_CLOCK));
     } else {
       /* Capture data on rising edge */
@@ -429,15 +436,34 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
   uart_putc('L');
 
   buf = find_buffer(cmd & 0x0f);
-
-  /* Abort if there is no buffer or it's not open for writing */
-  /* and it isn't an OPEN command                             */
-  if ((buf == NULL || !buf->write) && (cmd & 0xf0) != 0xf0) {
-    uart_putc('c');
-    iec_data.bus_state = BUS_CLEANUP;
-    return 1;
+  if (buf != NULL && buf->read) {
+    /* If the secondary is already in use, close the existing buffer */
+    printf("cleanup_and_free_buffer listen %02x\n", cmd);
+    cleanup_and_free_buffer(buf);
+    buf = NULL;
   }
 
+  if (buf == NULL) {
+    printf("alloc_buffer listen %02x\n", cmd);
+    buf = alloc_buffer();
+    if (!buf)
+      return 1;
+
+    //uart_trace(command_buffer,0,command_length);
+    buf->secondary = cmd & 0x0f;
+    buf->lastused = 0;
+    buf->sendeoi = 0;
+    buf->position = 0;
+    buf->read = 0;
+    buf->write = 1;
+    buf->refill = save_refill;
+    buf->position = 2;
+    buf->lastused = 1;
+    //buf->recordlen = 254;
+    stick_buffer(buf);
+  }
+  buf->pvt.sockcmd.cmd = cmd;
+  
   while (1) {
     if (iec_data.iecflags & JIFFY_ACTIVE) {
       iec_bus_t flags;
@@ -451,21 +477,13 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
           iec_data.iecflags |= EOI_RECVD;
         else
           iec_data.iecflags &= (uint8_t)~EOI_RECVD;
-    } else {
-      if (iec_data.iecflags & DOLPHIN_ACTIVE)
+    } else if (iec_data.iecflags & DOLPHIN_ACTIVE) {
         c = dolphin_getc();
-      else
+    } else {
         c = iec_getc();
     }
     if (c < 0) return 1;
 
-    if ((cmd & 0x0f) == 0x0f || (cmd & 0xf0) == 0xf0) {
-      if (command_length < CONFIG_COMMAND_BUFFER_SIZE)
-          command_buffer[command_length++] = c;
-      if (iec_data.iecflags & EOI_RECVD)
-        // Filenames are just a special type of command =)
-        iec_data.iecflags |= COMMAND_RECVD;
-    } else {
       /* Flush buffer if full */
       if (buf->mustflush) {
         if (buf->refill(buf))
@@ -486,10 +504,10 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
         buf->mustflush = 1;
 
       /* REL files must be syncronized on EOI */
-      if(buf->recordlen && (iec_data.iecflags & EOI_RECVD))
+      if(//buf->recordlen && 
+        (iec_data.iecflags & EOI_RECVD))
         if (buf->refill(buf))
           return 1;
-    }
   }
 }
 
@@ -505,8 +523,42 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
   uart_putc('T');
 
   buf = find_buffer(cmd & 0x0f);
-  if (buf == NULL)
-    return 0; /* 0 because we didn't change the state here */
+  if (buf != NULL && buf->write) {
+    /* If the secondary is already in use, close the existing buffer */
+    printf("cleanup_and_free_buffer talk %02x\n", cmd);
+    cleanup_and_free_buffer(buf);
+    buf = NULL;
+  }
+
+
+  if (buf == NULL) {
+    printf("alloc_buffer talk %02x\n", cmd);
+    buf = alloc_buffer();
+    if (!buf)
+      return 1;
+//?    return 0; /* 0 because we didn't change the state here */
+
+    //uart_trace(command_buffer,0,command_length);
+    buf->secondary = cmd & 0x0f;
+    buf->pvt.sockcmd.cmd = cmd;
+    buf->lastused = 0;
+    buf->sendeoi = 0;
+    buf->position = 255;
+
+    buf->read = 1;
+    buf->write = 0;
+    buf->refill = load_refill;
+
+    stick_buffer(buf);
+
+    // Initial refill
+    if (buf->refill(buf)) {
+      iec_data.bus_state = BUS_CLEANUP;
+      return 1;
+    }
+  } else {
+    printf("go on with old buffer talk %02x %d %d %d\n", cmd, buf->read, buf->position, buf->lastused);
+  }
 
   if (iec_data.iecflags & JIFFY_ACTIVE)
     /* wait 360us (J1541 E781) to make sure the C64 is at fbb7/fb0c */
@@ -528,12 +580,6 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
     /* FFA0 - this delay is required so the C64 can see data low even */
     /*        if it hits a badline at the worst possible moment       */
     delay_us(50);
-  }
-
-  if (!buf->read && buf->refill(buf)) {
-    // Initial refill
-    iec_data.bus_state = BUS_CLEANUP;
-    return 1;
   }
 
   while (buf->read) {
@@ -600,8 +646,8 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
     } while (buf->position++ < buf->lastused);
 
     if (buf->sendeoi &&
-        (cmd & 0x0f) != 0x0f &&
-        !buf->recordlen &&
+//        (cmd & 0x0f) != 0x0f &&
+//        !buf->recordlen &&
         buf->refill != directbuffer_refill) {
       buf->read = 0;
       break;
@@ -636,151 +682,6 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
 
   return 0;
 }
-
-/**
- * iec_send_talk_handler - handle an outgoing TALK request 
- * @cmd: command byte received from the bus
- *
- * This function handles a talk request to the device.
- */
-static uint8_t iec_send_talk_handler(const uint8_t cmd) {
-  int16_t c;
-  buffer_t *buf;
-
-  uart_putc('T');
-
-  buf = find_buffer(cmd & 0x0f);
-
-  /* Abort if there is no buffer or it's not open for writing */
-  /* and it isn't an OPEN command                             */
-  if ((buf == NULL || !buf->write) && (cmd & 0xf0) != 0xf0) {
-    uart_putc('c');
-    iec_data.bus_state = BUS_CLEANUP;
-    return 1;
-  }
-
-  while (1) {
-    c = iec_getc();
-    if (c < 0) return 1;
-
-    if ((cmd & 0x0f) == 0x0f || (cmd & 0xf0) == 0xf0) {
-      if (command_length < CONFIG_COMMAND_BUFFER_SIZE)
-        command_buffer[command_length++] = c;
-      if (iec_data.iecflags & EOI_RECVD)
-        // Filenames are just a special type of command =)
-        iec_data.iecflags |= COMMAND_RECVD;
-    } else {
-      /* Flush buffer if full */
-      if (buf->mustflush) {
-        if (buf->refill(buf))
-          return 1;
-        /* Search the buffer again, it can change when using large buffers. */
-        buf = find_buffer(cmd & 0x0f);
-      }
-
-      buf->data[buf->position] = c;
-      mark_buffer_dirty(buf);
-
-      if (buf->lastused < buf->position)
-        buf->lastused = buf->position;
-      buf->position++;
-
-      /* Mark buffer for flushing if position wrapped */
-      if (buf->position == 0)
-        buf->mustflush = 1;
-
-      /* REL files must be syncronized on EOI */
-      if(buf->recordlen && (iec_data.iecflags & EOI_RECVD))
-        if (buf->refill(buf))
-          return 1;
-    }
-    if (iec_data.iecflags & EOI_RECVD) {
-      printf("HELLO EOI %d\n", buf->position);
-        if (buf->refill(buf))
-          return 1;
-        return 0;
-    }
-  }
-}
-
-/**
- * iec_send_listen_handler - handle an outgoing LISTEN request
- * @cmd: command byte received from the bus
- *
- * This function handles a listen request to the device.
- */
-static uint8_t iec_send_listen_handler(uint8_t cmd) {
-  buffer_t *buf;
-
-  uart_putc('L');
-
-  if ((cmd & 0x0f) == 0x0f || (cmd & 0xf0) == 0xf0) {
-    for (int i = 0; i < command_length; i++) {
-      uint8_t finalbyte = i + 1 == command_length;
-      uint8_t res;
-      res = iec_putc(command_buffer[i], finalbyte);
-      if (res) {
-        uart_putc('Q');
-        return 1;
-      }
-    }
-    return 0;
-  }
-
-  buf = find_buffer(cmd & 0x0f);
-  if (buf == NULL)
-    return 0; /* 0 because we didn't change the state here */
-
-  if (!buf->read && buf->refill(buf)) {
-    // Initial refill
-    iec_data.bus_state = BUS_CLEANUP;
-    return 1;
-  }
-
-  while (buf->read) {
-    do {
-      uint8_t finalbyte = (buf->position == buf->lastused);
-      uint8_t res;
-
-      if (finalbyte && buf->sendeoi) {
-        /* Send with EOI */
-        res = iec_putc(buf->data[buf->position], 1);
-
-        if (res) {
-          uart_putc('Q');
-          return 1;
-        }
-      } else {
-        /* Send without EOI */
-        res = iec_putc(buf->data[buf->position], 0);
-
-        if (res) {
-          uart_putc('V');
-          return 1;
-        }
-      }
-    } while (buf->position++ < buf->lastused);
-
-    if (buf->sendeoi &&
-        (cmd & 0x0f) != 0x0f &&
-        !buf->recordlen &&
-        buf->refill != directbuffer_refill) {
-      buf->read = 0;
-      break;
-    }
-
-    if (buf->refill(buf)) {
-      iec_data.bus_state = BUS_CLEANUP;
-      return 1;
-    }
-
-    /* Search the buffer again, it can change when using large buffers */
-    buf = find_buffer(cmd & 0x0f);
-  }
-
-  return 0;
-}
-
 
 /* ------------------------------------------------------------------------- */
 /*  Initialization and main loop                                             */
@@ -1057,7 +958,9 @@ void iec_mainloop(void) {
 
       /* We're done, clean up unused buffers */
       free_multiple_buffers(FMB_UNSTICKY);
+#if 0
       d64_bam_commit();
+#endif
 
       iec_data.bus_state = BUS_IDLE;
       break;
@@ -1065,7 +968,7 @@ void iec_mainloop(void) {
     // Host mode
 
     case BUS_SENDATN:
-
+      // Experimental code
       iec_data.device_address = 8;
       iec_data.secondary_address = 0; // load
         setbuf(stdout, 0);
@@ -1082,7 +985,7 @@ void iec_mainloop(void) {
       // send filename...
       strcpy((char*)command_buffer, "$");
       command_length = strlen((char*)command_buffer);
-      if (iec_send_listen_handler(0xf0)) {
+      if (iec_talk_handler(0xf0)) {
         printf("PAH2\n");
         iec_data.bus_state = BUS_CLEANUP;
         break;
@@ -1104,7 +1007,7 @@ void iec_mainloop(void) {
 
       // FIXME open_file, allocate buffer
       file_open(1); // like save
-      if (iec_send_talk_handler(0x61)) {
+      if (iec_listen_handler(0x61)) {
         printf("PAH4\n");
         iec_data.bus_state = BUS_CLEANUP;
         break;

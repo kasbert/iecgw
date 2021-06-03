@@ -66,11 +66,17 @@ class CSDBNode:
             return None
         if iecname == b'':
             return self
+        if iecname.startswith(b'Q='):
+            url = b'https://csdb.dk/search/?search=' + fromPETSCII(iecname)[2:]
+            print ('CD SEARCH', self.cwd(), url)
+            node = CSDBNode(url.decode('latin1'))
+            node.next = self
+            return node
+        if iecname == b'== MORE ==' or iecname == b'== more ==': # Next page
+            self.offset += 40
+            return self
         entry = matchFile(self.files, iecname)
         if entry is None:
-            if iecname == b'-- MORE --': # Next page
-                self.offset += 40
-                return self
             return None
         url = urljoin(self.url, entry['href'])
         if entry['extension'] == 'D64':
@@ -115,13 +121,16 @@ class CSDBNode:
     def list(self):
         arr = self.files[self.offset:]
         if len(arr) > 40:
-            entry = fileEntry(0, '-- more --', self.files)
-            entry['extension'] = 'DIR'
+            entry = { 'size': 0, 'name': b'== MORE ==', 'extension': 'DIR'}
             arr = arr[0:40]
             arr.append(entry)
         return arr
 
     def isdir(self, iecname):
+        if iecname.startswith(b'Q='):
+            return True
+        if iecname == b'== MORE ==' or iecname == b'== more ==': # Next page
+            return True
         entry = matchFile(self.files, iecname)
         print("LOAD", entry, repr(iecname))
         if entry is None:
@@ -134,7 +143,7 @@ class CSDBNode:
         entry = matchFile(self.files, iecname)
         print("LOAD", entry, repr(iecname))
         if entry is None:
-            return False
+            return None
         #... if entry['extension'] == 'PRG':
         if entry['extension'] == 'PRG':
             url = urljoin(self.url, entry['href'])
@@ -143,7 +152,7 @@ class CSDBNode:
             print ("result code: " + str(webUrl.getcode()))
             data = webUrl.read()
             return C64MemoryFile(data, entry['name'])
-        return False
+        return None
 
     def save(self, iecname):
         return None

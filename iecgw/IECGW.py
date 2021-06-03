@@ -15,7 +15,10 @@ class IECGW:
 
     def iecSend(self, data):
         self.s.sendall(data)
-        print('>', repr(data))
+        if len(data) < 20:
+            print('>', repr(data))
+        else:
+            print('>', repr(data[0:20]), '...')
 
     def iecSendMsg(self, msg):
         data = msg.data
@@ -25,16 +28,10 @@ class IECGW:
         self.s.sendall(header)
         if len(data) > 0:
             self.s.sendall(data)
-        print('>', repr(header), repr(data))
-
-    def iecSendMsg2(self, cmd, secondary, data):
-        if isinstance(data, int):
-            data = bytes([data])
-        header = pack('cBB', cmd, secondary, len(data))
-        self.s.sendall(header)
-        if len(data) > 0:
-            self.s.sendall(data)
-        print('>', repr(header), repr(data))
+        if len(data) < 20:
+            print('>', repr(header), '[', len(data), ']', repr(data))
+        else:
+            print('>', repr(header), '[', len(data), ']', repr(data[0:20]), '...')
 
     def iecReadMsg(self):
         data = self.iecRead(3)

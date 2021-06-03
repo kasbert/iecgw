@@ -10,7 +10,7 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define CONFIG_COMMAND_BUFFER_SIZE 256
+#define CONFIG_COMMAND_BUFFER_SIZE 255
 #define CONFIG_ERROR_BUFFER_SIZE 256
 #define CONFIG_BUFFER_COUNT 20
 #define ROM_NAME_LENGTH 16

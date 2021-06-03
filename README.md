@@ -46,15 +46,16 @@ All socket messages consists of 3-257 bytes
  * B Bytes response for Read
  * E Bytes response for Read with end of file
 
-# Requirements
+# Compile and use
 ```
-pip3 install ... cbm f64
-
 cd src
 make
-sudo ./iecgw
+sudo ./iecgw &
+
 cd ..
-./server.py
+sudo pip3 install d64
+./fileserver.py
+./printserver.py
 ```
 
 # TODO

@@ -29,7 +29,7 @@ class MenuNode:
         entry = matchFile(self.files, iecname)
         if entry is None:
             return None
-        node = entry['node']
+        node = entry['node']()
         node.next = self
         return node
 

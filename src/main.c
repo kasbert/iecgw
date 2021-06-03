@@ -16,6 +16,11 @@
 
 static void setup_realtimeish();
 void gpio_init();
+void proc_exit()
+{
+  exit(0);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -27,12 +32,14 @@ int main(int argc, char **argv)
     default: // Parent, socket process
 #endif
       signal(SIGPIPE, SIG_IGN);
+  		signal (SIGCHLD, proc_exit);
       // TODO wait child death
 
       if (iecgw_init()) {
         exit(EXIT_FAILURE);
       }
 #ifndef SINGLE_PROCESS
+      setuid(65534); // nobody in my system
       iecgw_loop();
       break;
 
@@ -50,6 +57,7 @@ int main(int argc, char **argv)
       gpio_init();
 
       iec_init();
+      setuid(65534); // nobody in my system
       iec_mainloop();
     }
 #ifndef SINGLE_PROCESS

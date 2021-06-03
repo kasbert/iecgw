@@ -81,9 +81,9 @@ def fileEntry(size, realname, files):
     if size > 65535:
         size = 65535
     name = realname
-    name = name.replace('?', '_')
-    name = name.replace('*', '_')
-    name = name.replace('=', '_')
+    name = name.replace('?', '-')
+    name = name.replace('*', '-')
+    name = name.replace('=', '-')
     extension = ''
     if name.endswith('.prg') or name.endswith('.PRG'):
         extension = 'PRG'
@@ -152,7 +152,7 @@ def packDir(title, list, free):
         dirdata.extend(pack('<HH', basicPtr, size))
         dirdata.extend(lname)
         dirdata.append(0)
-        if len(dirdata) > 32000:
+        if len(dirdata) > 32000: # some random maximum
             break
 
     lname = 'blocks free'

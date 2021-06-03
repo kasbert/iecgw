@@ -8,11 +8,11 @@
 #include <string.h>
 
 #include "arch-config.h"
-#include "buffers.h"
 #include "iec.h"
 #include "debug.h"
-#include "errormsg.h"
 #include "iecgw.h"
+#include "buffers.h"
+#include "errormsg.h"
 
 uint8_t command_buffer[CONFIG_COMMAND_BUFFER_SIZE + 2];
 uint8_t command_length;
@@ -194,13 +194,20 @@ void parse_doscommand(void)
   from_iec_write_msg(current_device_address, 'P', 0x0f, command_buffer, command_length);
 }
 
+
+void debug_show_buffer(buffer_t *buf, char *message) {
+  printf("%lld %s buffer sec %d %s%s%s%s%s %d-%d %d\n", timestamp_us(), message, buf->secondary,
+  buf->write?"Write":"", buf->read?"Read":"", buf->sticky?"Sticky":"", buf->dirty?"Dirty":"", buf->sendeoi?"Sendeoi":""
+  , buf->position, buf->lastused, buf->recordlen);
+}
+
 uint8_t load_refill(buffer_t *buf)
 {
   uint8_t secondary = buf->secondary;
   uint8_t cmd;
   size_t len = 256;
 
-  printf("%lld load_refill secondary %d\n", timestamp_us(), secondary);
+  //printf("%lld load_refill secondary %d\n", timestamp_us(), secondary);
 
   to_iec_prepare_read_msg(current_device_address);
   from_iec_write_msg(current_device_address, 'R', secondary, 0, 0);
@@ -229,26 +236,35 @@ uint8_t load_refill(buffer_t *buf)
   buf->read = 1;
   if (cmd == 'E')
   {
-    printf("%lld load_refill final %d\n", timestamp_us(), len);
     buf->sendeoi = 1;
     unstick_buffer(buf);
     //buf->read = 0;
-    return 0;
   }
-  printf("%lld load_refill ok %d\n", timestamp_us(), len);
+  debug_show_buffer(buf, "load_refill ok");
   return 0;
 }
 
 uint8_t save_refill(buffer_t *buf)
 {
   uint8_t secondary = buf->secondary;
-  printf("%lld save_refill secondary %d [%d]\n", timestamp_us(), secondary, (uint8_t)(buf->position - 2));
+  uint8_t cmd2 = 'P';
+  uint8_t cmd = buf->pvt.sockcmd.cmd;
 
-  from_iec_write_msg(current_device_address, 'W', secondary, buf->data + 2, buf->position - 2);
-  buf->position = 2;
-  buf->lastused = -1;
+  debug_show_buffer(buf, "save_refill");
+  //printf("%lld save_refill cmd %02x secondary %d\n", timestamp_us(), cmd, secondary);
+  if ((cmd & 0xf0) == 0xf0) { // OPEN
+    cmd2 = 'O';
+    debug_print_buffer("save_refill open", buf->data + 2,  buf->lastused - 1);
+  } else if ((cmd & 0xf0) == 0x60) { // DATA
+    cmd2 = 'W';
+  } 
+
+  from_iec_write_msg(current_device_address, cmd2, secondary, buf->data + 2, buf->lastused - 1);
+  buf->position = 2; // Use only 254 bytes in buffer
+  buf->lastused = 1;
   buf->write = 1;
   buf->mustflush = 0;
+  mark_buffer_clean(buf);
 
   return 0;
 }
@@ -256,50 +272,19 @@ uint8_t save_refill(buffer_t *buf)
 void file_open(uint8_t secondary)
 {
   debug_print_buffer("file_open", command_buffer, command_length);
-
-  buffer_t *buf;
-
-  from_iec_write_msg(current_device_address, 'O', secondary, command_buffer, command_length);
-
-  set_error(ERROR_OK);
-
-  /* If the secondary is already in use, close the existing buffer */
-  buf = find_buffer(secondary);
-  if (buf != NULL)
-  {
-    /* FIXME: What should we do if an error occurs? */
-    cleanup_and_free_buffer(buf);
-  }
-  buf = alloc_buffer();
-  if (!buf)
-    return;
-
-  //uart_trace(command_buffer,0,command_length);
-  buf->secondary = secondary;
-  buf->lastused = 0;
-  buf->sendeoi = 0;
-  buf->position = 0;
-  if (secondary == 1) {
-    // FIXME add support for SEQ write, too    
-    buf->read = 0;
-    buf->write = 1;
-    buf->refill = save_refill;
-    buf->position = 2;
-    buf->lastused = 255;
-    buf->recordlen = 254;
-  } else {
-    buf->read = 0; // Will be set on load_refill
-    buf->write = 0;
-    buf->refill = load_refill;
-  }
-  stick_buffer(buf);
-
-  //remote_refill(buf); // Too slow
 }
 
 void file_close(uint8_t secondary)
 {
+  buffer_t *buf;
   printf("%lld file_close %d\n", timestamp_us(), secondary);
+  buf = find_buffer(secondary);
+  if (buf != NULL) {
+    // TODO should we refill it, if writing ?
+    debug_show_buffer(buf, "file_close");
+    unstick_buffer(buf);
+    free_buffer(buf);
+  }
   from_iec_write_msg(current_device_address, 'C', secondary, 0, 0);
 }
 
@@ -309,15 +294,15 @@ void device_hw_address_init() {
 
 void uart_putc(char c)
 {
-  putchar(c);
+  //putchar(c);
 }
 void uart_putcrlf(void)
 {
-  putchar('\n');
+  //putchar('\n');
 }
 void uart_puthex(uint8_t num)
 {
-  printf("%02x", num);
+  //printf("%02x", num);
 }
 
 // TODO add leds
@@ -325,8 +310,8 @@ void set_dirty_led(uint8_t state) {}
 void set_busy_led(uint8_t state) {}
 void update_leds(void)
 {
-  set_busy_led(active_buffers != 0);
-  set_dirty_led(get_dirty_buffer_count() != 0);
+  //set_busy_led(active_buffers != 0);
+  //set_dirty_led(get_dirty_buffer_count() != 0);
 }
 
 uint8_t jiffy_receive(iec_bus_t *busstate)

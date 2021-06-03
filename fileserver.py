@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
-import os
+import time
 from struct import unpack
 
 
@@ -11,12 +11,19 @@ from iecgw.codec import toPETSCII,fromIEC,toIEC,IOErrorMessage,packDir
 # TODO parse files from command line
 global topNode
 #topNode = DirNode('../', 'warez')
+
+def dirNode():
+    return DirNode('../', 'warez')
+
+def csdbNode():
+    return CSDBNode()
+
 topNode = MenuNode([
- { 'size': 0, 'name': b'FILES', 'extension': 'DIR', 'node': DirNode('../', 'warez')},
- { 'size': 0, 'name': b'CSDB.DK', 'extension': 'DIR', 'node': CSDBNode()}
+ { 'size': 0, 'name': b'FILES', 'extension': 'DIR', 'node': dirNode},
+ { 'size': 0, 'name': b'CSDB.DK', 'extension': 'DIR', 'node': csdbNode}
 ])
 
-class fileserver:
+class FileServer:
     def __init__(self):
         self.openFiles = [None for i in range(16)] 
         self.device_id = 8
@@ -24,7 +31,7 @@ class fileserver:
     def handleMessage(self, msg):
         print ("SOCKET CMD", msg.cmd, "secondary", msg.secondary, 'data[',len(msg.data),']')
         func = getattr(self, msg.cmd, None) 
-        return func(msg.secondary, msg.data)
+        return func(msg.secondary & 0xf, msg.data)
 
     def doCd(self, name):
         global topNode
@@ -82,6 +89,7 @@ class fileserver:
             name = name[2:]
         if channel == 15: # CONTROL
             if name.startswith(b'CD:'):
+                name = name.rstrip(b'\r')
                 if name == b'CD:_':
                     self.doCd(b'..')
                 else:
@@ -110,7 +118,12 @@ class fileserver:
         return IECMessage(b'I', self.device_id, b'') # hw device id 8
 
     def P(self, secondary, data): # Parse dos command
-        self.doOpen(secondary, data)
+        if secondary == 0: # LOAD
+            self.doLoad(data)
+        elif secondary == 1: # SAVE
+            self.doSave(data)
+        else:
+            self.doOpen(secondary, data)
 
     def O(self, secondary, data):
         if secondary == 0: # LOAD
@@ -158,6 +171,9 @@ class fileserver:
  
     def W(self, secondary, data): # Write
         if self.openFiles[secondary] is None:
+            if secondary == 15:
+                self.doOpen(secondary, data)
+                return
             print('WRITE ERROR')
             return
         #print ('WRITE', openFiles[secondary])
@@ -167,14 +183,19 @@ class fileserver:
         data = data.decode('latin1')
         print('DEBUG', repr(data))
 
-s = IECGW()
-fileserver = fileserver()
-
 while True:
-    msg = s.iecReadMsg()
-    if msg is None:
-        print ("Out of data")
-        break
-    response = fileserver.handleMessage(msg)
-    if response is not None:
-        s.iecSendMsg(response)
+    s = IECGW()
+    fileserver = FileServer()
+
+    try:
+        while True:
+            msg = s.iecReadMsg()
+            if msg is None:
+                print ("Out of data")
+                break
+            response = fileserver.handleMessage(msg)
+            if response is not None:
+                s.iecSendMsg(response)
+    except:
+        print("Unexpected error:", sys.exc_info()[0])
+        time.sleep(10)
