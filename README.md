@@ -1,10 +1,11 @@
 # iecgw
 Gateway to Commodore IEC world
 
-![Img](img/iecgw.png)
+![Img](img/iecgw_opi.jpg)
+![Img](img/iecgw_opi_open.jpg)
 
  * No fastloaders
- * Unreliable
+ * Somewhat unreliable
  * Limited support for 1541 dos functions
  * Simple pi1541 hardware
  * OragePi Zero with Armbian. Might work with others, too
@@ -12,6 +13,8 @@ Gateway to Commodore IEC world
  * Realtime-ish setup in user space, with a dedicated cpu
  * Full linux networking and services
  * Easyish python server code
+
+![Img](img/iecgw.png)
 
 ```
 IEC code copied from SD2IEC https://www.sd2iec.de/
