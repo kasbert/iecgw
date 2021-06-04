@@ -19,8 +19,8 @@ class CSDBNode:
         self.url = url
         self.next = False
         self.files = []
-        self.mapFiles()
         self.title_ = 'CSDB.DK'
+        self.mapFiles()
         self.tempf = None
         self.offset = 0
 
@@ -60,7 +60,7 @@ class CSDBNode:
 
     def cd(self, iecname):
         self.close()
-        if iecname == b'..':
+        if iecname == b'..' or iecname == b'_':
             if self.next:
                 return self.next
             return None
@@ -168,6 +168,7 @@ class MyHTMLParser(HTMLParser):
         #for attr in attrs:
         #    print("     attr:", attr)
         attrs = dict(attrs)
+        # TODO add configurable filtering
         if tag == 'a' and 'href' in attrs and (attrs['href'].startswith('/release') or attrs['href'].startswith('download')) and '&' not in attrs['href']:
             self.a = True
             self.href = attrs['href']
@@ -180,7 +181,7 @@ class MyHTMLParser(HTMLParser):
             self.a = False
             self.files.append({ 'size': 0, 'name': self.data, 'extension': 'DIR', 'href': self.href })
         if tag == 'title':
-            print ('TITLE', self.data)
+            #print ('TITLE', self.data)
             self.title_ = self.data
             self.title = False
 

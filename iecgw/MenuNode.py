@@ -1,6 +1,7 @@
 
 
-from .codec import matchFile
+from .codec import matchFile,fromPETSCII
+from .CSDBNode import CSDBNode
 
 class MenuNode:
     def __init__(self, files = []):
@@ -18,14 +19,20 @@ class MenuNode:
 
     def cd(self, iecname):
         self.close()
-        if iecname == b'..':
+        if iecname == b'..' or iecname == b'_':
             if self.next:
                 next = self.next
                 self.next = False
                 return next
-            return None
+            return self # Already at top
         if iecname == b'':
             return self
+        if iecname.startswith(b'Q='):
+            url = b'https://csdb.dk/search/?search=' + fromPETSCII(iecname)[2:]
+            print ('CD SEARCH', self.cwd(), url)
+            node = CSDBNode(url.decode('latin1'))
+            node.next = self
+            return node
         entry = matchFile(self.files, iecname)
         if entry is None:
             return None

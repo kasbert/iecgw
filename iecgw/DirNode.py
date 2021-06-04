@@ -46,7 +46,7 @@ class DirNode:
         if iecname == b'':
             self.mapFiles() # Just in case
             return self
-        if iecname == b'..':
+        if iecname == b'..' or iecname == b'_':
             if self.next:
                 return self.next
             return None

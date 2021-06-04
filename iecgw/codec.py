@@ -113,6 +113,7 @@ def packDir(title, list, free):
     lname = b'\x12"' + title
     while len(lname) < 18:
         lname += b' '
+    lname = lname[0:18]
     lname += b'" 12 4A'
  
     basicPtr = 0x0401

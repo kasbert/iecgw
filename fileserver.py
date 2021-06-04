@@ -16,11 +16,20 @@ def dirNode():
     return DirNode('../', 'warez')
 
 def csdbNode():
-    return CSDBNode()
+    return CSDBNode('https://csdb.dk/')
+
+def csdbOneFileNode():
+    return CSDBNode('https://csdb.dk/toplist.php?type=release&subtype=%282%29')
+
+def csdbDemosNode():
+    return CSDBNode('https://csdb.dk/toplist.php?type=release&subtype=%281%29')
+
 
 topNode = MenuNode([
  { 'size': 0, 'name': b'FILES', 'extension': 'DIR', 'node': dirNode},
- { 'size': 0, 'name': b'CSDB.DK', 'extension': 'DIR', 'node': csdbNode}
+# { 'size': 0, 'name': b'CSDB.DK', 'extension': 'DIR', 'node': csdbNode},
+ { 'size': 0, 'name': b'CSDB ONEFILE', 'extension': 'DIR', 'node': csdbOneFileNode},
+ { 'size': 0, 'name': b'CSDB DEMOS', 'extension': 'DIR', 'node': csdbDemosNode}
 ])
 
 class FileServer:
@@ -36,6 +45,11 @@ class FileServer:
     def doCd(self, name):
         global topNode
         print ('CD', repr(name))
+        if name == b'CD//':
+            while topNode.next:
+                topNode.close()
+                topNode = topNode.next
+            return
         newNode = topNode.cd(name)
         if newNode is None:
             print ("ERROR in cd ", repr(name))
@@ -55,7 +69,7 @@ class FileServer:
             dirdata = packDir(topNode.title(), topNode.list(), topNode.free())
             self.openFiles[0] = C64MemoryFile(dirdata, b'$')
             return
-        elif topNode.isdir(name):
+        elif name == b'CD//' or topNode.isdir(name):
             print ("LOAD CD", topNode.cwd(), name)
             self.doCd(name)
             dirdata = packDir(topNode.title(), topNode.list(), topNode.free())
@@ -88,16 +102,15 @@ class FileServer:
         if name.startswith(b'0:'):
             name = name[2:]
         if channel == 15: # CONTROL
-            if name.startswith(b'CD:'):
+            if name == b'CD//': 
+                self.doCd(name)
+            elif name.startswith(b'CD:'):
                 name = name.rstrip(b'\r')
-                if name == b'CD:_':
-                    self.doCd(b'..')
-                else:
-                    self.doCd(name[3:])
-            if name.startswith(b'M-W'):
+                self.doCd(name[3:])
+            elif name.startswith(b'M-W'):
                 address, size = unpack('<HB', name[3:6])
                 print ('MEMORY WRITE', address, size, len(name[6:]), repr(name[6:]))
-            if name.startswith(b'M-E'):
+            elif name.startswith(b'M-E'):
                 address = unpack('<H', name[3:5])
                 print ('MEMORY EXECUTE', address)
         else: # channels 2-14

@@ -32,7 +32,7 @@ class D64Node:
 
     def cd(self, iecname):
         self.close()
-        if iecname == b'..':
+        if iecname == b'..' or iecname == b'_':
             if self.next:
                 return self.next
             return None

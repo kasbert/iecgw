@@ -85,7 +85,7 @@ class ZipNode:
         if iecname == b'':
             self.mapFiles() # Just in case
             return self
-        if iecname == b'..':
+        if iecname == b'..' or iecname == b'_':
             if self.workdir != '':
                 elems = self.workdir.rstrip('/').split('/')
                 elems.pop()
