@@ -10,7 +10,7 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define CONFIG_COMMAND_BUFFER_SIZE 255
+#define CONFIG_COMMAND_BUFFER_SIZE 256
 #define CONFIG_ERROR_BUFFER_SIZE 256
 #define CONFIG_BUFFER_COUNT 20
 #define ROM_NAME_LENGTH 16
@@ -24,13 +24,10 @@
 
 typedef uint8_t iec_bus_t;
 
-extern uint8_t command_buffer[CONFIG_COMMAND_BUFFER_SIZE + 2];
-extern uint8_t command_length;
-
 void device_hw_address_init();
 // uint8_t device_hw_address();
 uint8_t is_hw_address(uint8_t addr);
-void parse_doscommand(void);
+// void parse_doscommand(void);
 void file_open(uint8_t secondary);
 void file_close(uint8_t secondary);
 uint8_t check_input();

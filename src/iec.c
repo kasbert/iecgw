@@ -438,13 +438,13 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
   buf = find_buffer(cmd & 0x0f);
   if (buf != NULL && buf->read) {
     /* If the secondary is already in use, close the existing buffer */
-    printf("cleanup_and_free_buffer listen %02x\n", cmd);
+    printf("%lld cleanup_and_free_buffer listen %02x\n", timestamp_us(), cmd);
     cleanup_and_free_buffer(buf);
     buf = NULL;
   }
 
   if (buf == NULL) {
-    printf("alloc_buffer listen %02x\n", cmd);
+    printf("%lld alloc_buffer listen %02x\n", timestamp_us(), cmd);
     buf = alloc_buffer();
     if (!buf)
       return 1;
@@ -525,18 +525,18 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
   buf = find_buffer(cmd & 0x0f);
   if (buf != NULL && buf->write) {
     /* If the secondary is already in use, close the existing buffer */
-    printf("cleanup_and_free_buffer talk %02x\n", cmd);
+    printf("%lld cleanup_and_free_buffer talk %02x\n", timestamp_us(), cmd);
     cleanup_and_free_buffer(buf);
     buf = NULL;
   }
 
 
   if (buf == NULL) {
-    printf("alloc_buffer talk %02x\n", cmd);
+    printf("%lld alloc_buffer talk %02x\n", timestamp_us(), cmd);
     buf = alloc_buffer();
     if (!buf)
       return 1;
-//?    return 0; /* 0 because we didn't change the state here */
+    //?    return 0; /* 0 because we didn't change the state here */
 
     //uart_trace(command_buffer,0,command_length);
     buf->secondary = cmd & 0x0f;
@@ -557,7 +557,7 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
       return 1;
     }
   } else {
-    printf("go on with old buffer talk %02x %d %d %d\n", cmd, buf->read, buf->position, buf->lastused);
+    printf("%lld go on with old buffer talk %02x %d %d %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
   }
 
   if (iec_data.iecflags & JIFFY_ACTIVE)
@@ -828,6 +828,10 @@ void iec_mainloop(void) {
         }
 
         iec_data.secondary_address = cmd & 0x0f;
+        if ((cmd & 0xf0) == 0xf0) { // open
+            file_open(iec_data.secondary_address);
+        }
+
         /* 1571 handles close (0xe0-0xef) here, so we do that too. */
         if ((cmd & 0xf0) == 0xe0) {
           file_close(cmd & 0x0f);
@@ -925,6 +929,7 @@ void iec_mainloop(void) {
 
       //   0x255 -> A61C
       /* Handle commands and filenames */
+#if 0
       if (iec_data.iecflags & COMMAND_RECVD) {
 
 #ifdef HAVE_HOTPLUG
@@ -955,6 +960,7 @@ void iec_mainloop(void) {
         command_length = 0;
         iec_data.iecflags &= (uint8_t)~COMMAND_RECVD;
       }
+#endif
 
       /* We're done, clean up unused buffers */
       free_multiple_buffers(FMB_UNSTICKY);
@@ -983,8 +989,25 @@ void iec_mainloop(void) {
       }
  
       // send filename...
-      strcpy((char*)command_buffer, "$");
-      command_length = strlen((char*)command_buffer);
+      {
+        buffer_t *buf = alloc_buffer();
+        if (!buf) {
+          printf("PAH1\n");
+          iec_data.bus_state = BUS_CLEANUP;
+          break; // FIXME
+        }
+        buf->secondary = 0;
+        buf->pvt.sockcmd.cmd = 0xf0;
+
+        buf->read = 1;
+        buf->write = 0;
+        buf->refill = 0 ; //FIXME
+        strcpy((char*)buf->data, "$");
+        buf->lastused = strlen((char*)buf->data);
+        buf->position = 0;
+        buf->sendeoi = 1;
+      }
+
       if (iec_talk_handler(0xf0)) {
         printf("PAH2\n");
         iec_data.bus_state = BUS_CLEANUP;
@@ -1006,7 +1029,6 @@ void iec_mainloop(void) {
       }
 
       // FIXME open_file, allocate buffer
-      file_open(1); // like save
       if (iec_listen_handler(0x61)) {
         printf("PAH4\n");
         iec_data.bus_state = BUS_CLEANUP;

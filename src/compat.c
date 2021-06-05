@@ -14,8 +14,6 @@
 #include "buffers.h"
 #include "errormsg.h"
 
-uint8_t command_buffer[CONFIG_COMMAND_BUFFER_SIZE + 2];
-uint8_t command_length;
 
 volatile uint8_t led_state;
 uint8_t globalflags;
@@ -188,10 +186,17 @@ static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *second
 
 // Called from iec.c
 
+/*
 void parse_doscommand(void)
 {
   debug_print_buffer("parse_doscommand", command_buffer, command_length);
   from_iec_write_msg(current_device_address, 'P', 0x0f, command_buffer, command_length);
+}
+*/
+void file_open(uint8_t secondary)
+{
+  /* Don't do any slow operations here. We are still in ATN handling. A talk or listen will follow */
+  printf("%lld file_open sec %d\n", timestamp_us(), secondary);
 }
 
 
@@ -267,11 +272,6 @@ uint8_t save_refill(buffer_t *buf)
   mark_buffer_clean(buf);
 
   return 0;
-}
-
-void file_open(uint8_t secondary)
-{
-  debug_print_buffer("file_open", command_buffer, command_length);
 }
 
 void file_close(uint8_t secondary)
