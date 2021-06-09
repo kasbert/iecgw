@@ -24,7 +24,7 @@ uint8_t file_extension_mode;
 
 uint8_t current_device_address;
 static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size);
-static int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size);
+int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size);
 
 // TODO make configurable
 uint8_t m_atnPin = 6;
@@ -48,6 +48,12 @@ void gpio_init()
   pullUpDnControl(m_clockPin, PUD_UP);
   pullUpDnControl(m_srqInPin, PUD_UP);
   pullUpDnControl(m_resetPin, PUD_UP);
+}
+
+void debug_show_buffer(buffer_t *buf, char *message) {
+  printf("%lld %s buffer sec %d %s%s%s%s%s %d-%d %d\n", timestamp_us(), message, buf->secondary,
+  buf->write?"Write":"", buf->read?"Read":"", buf->sticky?"Sticky":"", buf->dirty?"Dirty":"", buf->sendeoi?"Sendeoi":""
+  , buf->position, buf->lastused, buf->recordlen);
 }
 
 // Called from mainloop system_sleep()
@@ -90,11 +96,43 @@ uint8_t check_input() {
 }
 
 void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *data, size_t len) {
+  uint8_t ieccmd = secondary;
   switch (cmd)
   {
-    case 'x':
-      iec_data.bus_state = BUS_SENDATN;
-    return ;
+    case 'o':
+      iec_data.bus_state = BUS_SENDOPEN;
+      ieccmd = 0xf0 + secondary;
+      break;
+    case 'd':
+      iec_data.bus_state = BUS_SENDDATA;
+      ieccmd = 0x60 + secondary;
+      break;
+    case 't':
+      iec_data.bus_state = BUS_SENDTALK;
+      break;
+    case 'c':
+      iec_data.bus_state = BUS_SENDCLOSE;
+      ieccmd = 0xe0 + secondary;
+      break;
+  }
+  if (len > 0) {
+    buffer_t *buf = alloc_buffer();
+    if (!buf) {
+      printf("PAH1\n");
+      iec_data.bus_state = BUS_CLEANUP;
+      return; // FIXME
+    }
+    buf->secondary = secondary;
+    buf->pvt.sockcmd.cmd = ieccmd;
+
+    buf->read = 1;
+    buf->write = 0;
+    buf->refill = 0 ; //FIXME
+    memcpy(buf->data, data, len);
+    buf->lastused = len - 1;
+    buf->position = 0;
+    buf->sendeoi = 1;
+    debug_show_buffer(buf, "host");
   }
 }
 
@@ -108,7 +146,7 @@ uint8_t is_hw_address(uint8_t device_address) {
   return 1;
 }
 
-static int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
+int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
 {
 #ifdef SINGLE_PROCESS
   return socket_write_msg(common->socketfds[device_address], cmd, secondary, buffer, size);
@@ -199,12 +237,6 @@ void file_open(uint8_t secondary)
   printf("%lld file_open sec %d\n", timestamp_us(), secondary);
 }
 
-
-void debug_show_buffer(buffer_t *buf, char *message) {
-  printf("%lld %s buffer sec %d %s%s%s%s%s %d-%d %d\n", timestamp_us(), message, buf->secondary,
-  buf->write?"Write":"", buf->read?"Read":"", buf->sticky?"Sticky":"", buf->dirty?"Dirty":"", buf->sendeoi?"Sendeoi":""
-  , buf->position, buf->lastused, buf->recordlen);
-}
 
 uint8_t load_refill(buffer_t *buf)
 {

@@ -6,12 +6,14 @@ import os
 from iecgw import IECGW,IECMessage,C64MemoryFile
 from iecgw.codec import toPETSCII,fromIEC,toIEC,IOErrorMessage,fromPETSCII
 
-class testserver:
+class testserver: 
     def __init__(self):
-        self.device_id = 9
+        self.device_id = 0
 
     def handleMessage(self, msg):
         print ("SOCKET CMD", msg.cmd, "secondary", msg.secondary, 'data[',len(msg.data),']')
+        if msg.cmd == ':':
+            msg.cmd = 'status'
         func = getattr(self, msg.cmd, None) 
         return func(msg.secondary, msg.data)
 
@@ -50,6 +52,10 @@ class testserver:
         print('DEBUG', repr(data))
         return
 
+    def status(self, secondary, data): # Debug
+        print('STATUS', secondary, repr(data))
+        return
+
 s = IECGW()
 testserver = testserver()
 
@@ -74,8 +80,12 @@ while True:
     if sys.stdin in inp:
         c = sys.stdin.read()
         print ("-", c)
-        if c == 'x':
-            s.iecSendMsg(IECMessage(b'x', 8, b'$')) # hw device id 8
+        if c == 'o':
+            s.iecSendMsg(IECMessage(b'o', 0, b'$')) # open hw device id 8
+        if c == 't':
+            s.iecSendMsg(IECMessage(b't', 0, b'')) # talk
+        if c == 'c':
+            s.iecSendMsg(IECMessage(b'c', 0, b'')) # close
         if c == 'q':
             break
     if s.s not in inp:

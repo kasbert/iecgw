@@ -38,8 +38,14 @@ char *state2str(int bus_state)
     return "BUS_ATNPROCESS";
   case BUS_CLEANUP:
     return "BUS_CLEANUP";
-  case BUS_SENDATN:
-    return "BUS_SENDATN";
+  case BUS_SENDOPEN:
+    return "BUS_SENDOPEN";
+  case BUS_SENDDATA:
+    return "BUS_SENDDATA";
+  case BUS_SENDTALK:
+    return "BUS_SENDTALK";
+  case BUS_SENDCLOSE:
+    return "BUS_SENDCLOSE";
   }
   return "UNKNOWN STATE";
 }
@@ -54,6 +60,8 @@ char *dstate2str(int device_state)
     return "DEVICE_LISTEN";
   case DEVICE_TALK:
     return "DEVICE_TALK";
+  case HOST_ATN:
+    return "HOST_ATN";
   case HOST_LISTEN:
     return "HOST_LISTEN";
   case HOST_TALK:

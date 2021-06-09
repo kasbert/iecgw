@@ -83,7 +83,7 @@ static iec_bus_t iec_debounced(void) {
 
 /// Checks if ATN has changed and changes state to match (EA59)
 uint8_t iec_check_atn(void) {
-  if (iec_data.bus_state == BUS_SENDATN)
+  if (iec_data.device_state == HOST_ATN)
     return 0;
 
   if (iec_data.bus_state == BUS_ATNACTIVE)
@@ -325,6 +325,7 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
  * changed, the caller should return to the main loop in that case.
  */
 static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
+  iec_data.device_state = HOST_ATN;
   set_atn_irq(0);
   set_atn(0);
   set_data(1);
@@ -335,15 +336,15 @@ static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
   uint8_t ret = -1;
 
   // FIXME delay ?
+    debug_state();
   do {
     if (has_timed_out()) {
-      iec_data.bus_state = BUS_CLEANUP;
+      // iec_data.bus_state = BUS_CLEANUP;
       // FIXME Device not present error
       printf("%lld iec_atn_putc ERR timeo\n", timestamp_us());
       goto endatn;
     }
     // Wait for data pull down
-    debug_state();
   } while (IEC_DATA);
   debug_atn_command("SEND", cmd1);
 
@@ -372,6 +373,7 @@ static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
   endatn:
   delay_us(20);
   set_atn(1);
+  iec_data.device_state = DEVICE_IDLE;
   return ret;
 }
 
@@ -557,7 +559,7 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
       return 1;
     }
   } else {
-    printf("%lld go on with old buffer talk %02x %d %d %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
+    printf("%lld go on with old buffer talk cmd %02x read %d pos %d - %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
   }
 
   if (iec_data.iecflags & JIFFY_ACTIVE)
@@ -973,90 +975,103 @@ void iec_mainloop(void) {
 
     // Host mode
 
-    case BUS_SENDATN:
+    case BUS_SENDOPEN:
       // Experimental code
       iec_data.device_address = 8;
       iec_data.secondary_address = 0; // load
-        setbuf(stdout, 0);
-
+      cmd = 0; // OK
+      //setbuf(stdout, 0);
 
       // ATN_CODE_LISTEN, 8
       // ATN_CODE_OPEN, 0
       if (iec_atn_putc(0x28, 0xf0, 0)) {
-        printf("PAH1\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        printf("Cannot send open\n");
+        cmd = 74; // DriveNotReady
+        goto open_out;
       }
  
-      // send filename...
-      {
-        buffer_t *buf = alloc_buffer();
-        if (!buf) {
-          printf("PAH1\n");
-          iec_data.bus_state = BUS_CLEANUP;
-          break; // FIXME
-        }
-        buf->secondary = 0;
-        buf->pvt.sockcmd.cmd = 0xf0;
-
-        buf->read = 1;
-        buf->write = 0;
-        buf->refill = 0 ; //FIXME
-        strcpy((char*)buf->data, "$");
-        buf->lastused = strlen((char*)buf->data);
-        buf->position = 0;
-        buf->sendeoi = 1;
-      }
-
+      // Buffer is already set up
       if (iec_talk_handler(0xf0)) {
-        printf("PAH2\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        printf("Send buffer failed\n");
+        cmd = 74; // DriveNotReady
+        goto open_out;
       }
+
+      open_out:
+      iec_data.bus_state = BUS_CLEANUP;
+      from_iec_write_msg(0, ':', 8, &cmd, 1); 
+      break;
+
+    case BUS_SENDDATA:
+      cmd = 74; // DriveNotReady
+      from_iec_write_msg(0, ':', 8, &cmd, 1); 
+      iec_data.bus_state = BUS_CLEANUP;
+      break;
+
+    case BUS_SENDTALK:
+      cmd = 0; // OK
 
       // ATN_CODE_TALK, 8
       // ATN_CODE_DATA, 0
       if (iec_atn_putc(0x48, 0x60, 0)) {
-        printf("PAH3\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        printf("Cannot send talk\n");
+        cmd = 74; // DriveNotReady
+        goto talk_out;
       }
 
+      //printf("iec_start_listening\n");
+      //fflush(stdout);
       if (iec_start_listening()) {
         printf("PAH31\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        cmd = 74; // DriveNotReady
+        goto talk_out;
       }
 
       // FIXME open_file, allocate buffer
+      //printf("iec_listen_handler\n");
+      //fflush(stdout);
       if (iec_listen_handler(0x61)) {
         printf("PAH4\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        cmd = 74; // DriveNotReady
+        goto talk_out;
       }
+      printf("close\n");
+      fflush(stdout);
       file_close(1); // like save
 
       // ATN_CODE_UNTALK
       if (iec_atn_putc(0x5f, 0, 0)) {
         printf("PAH5\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        cmd = 74; // DriveNotReady
+        goto talk_out;
       }
+      printf("iec_end_listening\n");
+      fflush(stdout);
       if (iec_end_listening()) {
         printf("PAH51\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+        cmd = 74; // DriveNotReady
+        goto talk_out;
       }
+      talk_out:
+      from_iec_write_msg(0, ':', 8, &cmd, 1); 
+      iec_data.bus_state = BUS_CLEANUP;
+      break;
 
+    case BUS_SENDCLOSE:
+      cmd = 0; // OK
+      iec_data.device_address = 8;
+      iec_data.secondary_address = 0; // load
       // ATN_CODE_LISTEN, 8
       // ATN_CODE_CLOSE, 0
       // ATN_CODE_UNLISTEN
-      if (iec_atn_putc(0x28, 0xe0, 0x3f)) {
-        printf("PAH6\n");
-        iec_data.bus_state = BUS_CLEANUP;
-        break;
+      if (iec_atn_putc(0x28, 0xef, 0x3f)) {
+      //if (iec_atn_putc(0x28, 0xe0, 0x3f)) {
+        printf("Cannot send close\n");
+        cmd = 74; // DriveNotReady
       }
+      from_iec_write_msg(0, ':', 8, &cmd, 1); 
       iec_data.bus_state = BUS_CLEANUP;
+      break;
     }
 
   }

@@ -58,8 +58,8 @@
 typedef struct {
   uint8_t iecflags;
   enum { BUS_IDLE = 0, BUS_ATNACTIVE, BUS_FOUNDATN, BUS_FORME, BUS_NOTFORME, BUS_ATNFINISH, BUS_ATNPROCESS, BUS_CLEANUP, BUS_SLEEP, 
-      BUS_SENDATN} bus_state;
-  enum { DEVICE_IDLE = 0, DEVICE_LISTEN, DEVICE_TALK, HOST_LISTEN, HOST_TALK } device_state;
+      BUS_SENDOPEN, BUS_SENDDATA, BUS_SENDTALK, BUS_SENDCLOSE } bus_state;
+  enum { DEVICE_IDLE = 0, DEVICE_LISTEN, DEVICE_TALK, HOST_ATN, HOST_LISTEN, HOST_TALK } device_state;
   uint8_t device_address;
   uint8_t secondary_address;
 } iec_data_t;
