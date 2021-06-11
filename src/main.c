@@ -29,11 +29,9 @@ int main(int argc, char **argv)
 
 #ifndef SINGLE_PROCESS
   switch (fork()) {
-    default: // Parent, socket process
+    case 0: // Child, socket process
 #endif
       signal(SIGPIPE, SIG_IGN);
-  		signal (SIGCHLD, proc_exit);
-      // TODO wait child death
 
       if (iecgw_init()) {
         exit(EXIT_FAILURE);
@@ -43,7 +41,9 @@ int main(int argc, char **argv)
       iecgw_loop();
       break;
 
-    case 0: // Child, IEC process
+    default: // Parent, IEC process
+  		signal (SIGCHLD, proc_exit);
+      // TODO wait child death
 #endif
     {
       char stdout_buffer[8192];

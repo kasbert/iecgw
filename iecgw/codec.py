@@ -211,6 +211,7 @@ class IOErrorMessage(Enum):
   ErrIntro = 73           # power up message or write attempt with DOS mismatch
   ErrDriveNotReady = 74   # typically in this emulation could also mean: not
                       # supported on this file system.
+  ErrDeviceNotPresent = 96
   ErrSerialComm = 97 # something went sideways with serial communication to
                       # the file server.
   ErrNotImplemented = 98 # The command or specific operation is not yet

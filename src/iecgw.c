@@ -15,6 +15,8 @@
 #include "debug.h"
 #include "arch-config.h"
 
+int socket_write_msg(int fd, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size);
+int socket_read_msg(int fd, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size);
 //static int socket_write(int fd, char c);
 static int socket_write_buf(int fd, uint8_t *buf, size_t len);
 //static int socket_available(int fd);
@@ -28,16 +30,26 @@ void doflush() {
   fflush(stdout);
 }
 
-#ifndef SINGLE_PROCESS
+uint8_t iecgw_check_atn() {
+#ifdef SINGLE_PROCESS
+  handle_socket(0);
+#endif
+  if (common->to_iec_command.cmd)
+    printf("%lld ATTENTION incoming socket message\n", timestamp_us());
+  return common->to_iec_command.cmd; //common->atn;
+}
+
 static int to_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
 {
-  // Waith for previous message to be handled
+#ifndef SINGLE_PROCESS
+  // Wait for previous message to be handled
   if (common->to_iec_command.cmd) {
     printf("%lld* SEND IEC WAIT\n", timestamp_us());
     while (common->to_iec_command.cmd) {
     }
     printf("%lld* SEND IEC WAIT END\n", timestamp_us());
   }
+#endif
   common->to_iec_command.device_address = device_address;
   common->to_iec_command.secondary = secondary;
   common->to_iec_command.size = size;
@@ -50,38 +62,42 @@ static int to_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t seconda
   return 0;
 }
 
+#ifndef SINGLE_PROCESS
 uint8_t iecgw_loop()
 {
   printf("%lld* ACCEPTING\n", timestamp_us());
   while (1) {
-    // Receive message from IEC
-    if (common->from_iec_command.cmd) {
-      uint8_t device_address = common->from_iec_command.device_address;
-      if (common->socketfds[device_address] < 0) {
-        printf("%lld* Address %d is not connected3\n", timestamp_us(), device_address);
-      } else {
-        socket_write_msg(common->socketfds[device_address], 
-        common->from_iec_command.cmd, 
-        common->from_iec_command.secondary, 
-        common->from_iec_command.data, 
-        common->from_iec_command.size);
-      }
-      common->from_iec_command.cmd = 0; // ACK
-    }
-
-    handle_socket();
+    handle_iecgw();
+    handle_socket(100);
   }
 }
 #endif
 
-uint8_t handle_socket() {
+// Receive message from IEC
+uint8_t handle_iecgw() {
+  if (common->from_iec_command.cmd) {
+    uint8_t device_address = common->from_iec_command.device_address;
+    if (common->socketfds[device_address] < 0) {
+      printf("%lld* Address %d is not connected3\n", timestamp_us(), device_address);
+    } else {
+      socket_write_msg(common->socketfds[device_address], 
+      common->from_iec_command.cmd, 
+      common->from_iec_command.secondary, 
+      common->from_iec_command.data, 
+      common->from_iec_command.size);
+    }
+    common->from_iec_command.cmd = 0; // ACK
+  }
+  return 0;
+}
+
+// Accept and read sockets
+uint8_t handle_socket(long timeoutu) {
   fd_set rfds;
-  struct timeval tv = {0, 100};
+  struct timeval tv = {0, timeoutu};
   int retval;
   int maxfd = serverfd;
-#ifndef SINGLE_PROCESS
   uint8_t status;
-#endif
 
   FD_ZERO(&rfds);
   FD_SET(serverfd, &rfds);
@@ -103,6 +119,10 @@ uint8_t handle_socket() {
     /* Accept actual connection from the client */
     socket_accept(serverfd);
   }
+  if (common->to_iec_command.cmd) {
+    //printf("The previous message is not handled\n");
+    return 0;
+  }
   for (int i = 0; i < 32; i++) {
     if (common->socketfds[i] >= 0 && FD_ISSET(common->socketfds[i], &rfds)) {
       uint8_t cmd;
@@ -116,21 +136,15 @@ uint8_t handle_socket() {
         close(common->socketfds[i]);
         common->socketfds[i] = -1;
         printf("%lld* DISCONNECTED\n", timestamp_us());
-#ifndef SINGLE_PROCESS
         // In case we are reading and the fileserver crashed
         status = 74; // DriveNotReady
         to_iec_write_msg(i, ':', 15, &status, 1); 
-#endif
         return 1;
       }
       data[len] = 0;
       printf("%lld* SOCKET RECV cmd:%d sec:%d [%d]\n", timestamp_us(), cmd, secondary, len);
       //debug_print_buffer("iecgw_loop", data, len);
-#ifdef SINGLE_PROCESS
-      process_iecgw_msg(i, cmd, secondary, data, len);
-#else
       to_iec_write_msg(i, cmd, secondary, data, len);
-#endif
     }
   }
   return 0;

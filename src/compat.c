@@ -25,6 +25,7 @@ uint8_t file_extension_mode;
 uint8_t current_device_address;
 static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size);
 int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size);
+void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *data, size_t len);
 
 // TODO make configurable
 uint8_t m_atnPin = 6;
@@ -60,11 +61,11 @@ void debug_show_buffer(buffer_t *buf, char *message) {
 uint8_t check_input() {
   static int counter1 = 0, counter2 = 0;
 #ifdef SINGLE_PROCESS
-  handle_socket();
+  handle_socket(0);
   fflush(stdout);
-#else
+#endif
   if (common->to_iec_command.cmd != 0) {
-    printf("RECEIVED command %d\n", common->to_iec_command.cmd);
+    printf("%lld RECEIVED socket command %c\n", timestamp_us(), common->to_iec_command.cmd);
     fflush(stdout);
     process_iecgw_msg(common->to_iec_command.device_address, 
       common->to_iec_command.cmd,
@@ -74,7 +75,6 @@ uint8_t check_input() {
     );
     common->to_iec_command.cmd = 0; // ACK
   }
-#endif
 
   if (counter1 == 0) {
       fflush(stdout);
@@ -115,10 +115,12 @@ void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, u
       ieccmd = 0xe0 + secondary;
       break;
   }
+  iec_data.device_address = 8; // FIXME secondary >> 4;
+  iec_data.secondary_address = secondary & 0xf;
   if (len > 0) {
     buffer_t *buf = alloc_buffer();
     if (!buf) {
-      printf("PAH1\n");
+      printf("Cannot allocate buffer\n");
       iec_data.bus_state = BUS_CLEANUP;
       return; // FIXME
     }
@@ -148,19 +150,17 @@ uint8_t is_hw_address(uint8_t device_address) {
 
 int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
 {
-#ifdef SINGLE_PROCESS
-  return socket_write_msg(common->socketfds[device_address], cmd, secondary, buffer, size);
-#else
   if (common->socketfds[device_address] < 0) {
     printf("Address %d is not connected2\n", device_address);
     return -1;
   }
-  // Waith for previous message to be handled
+  // Wait for previous message to be handled
   if (common->from_iec_command.cmd) {
+    // Good place for deadlock
     printf("%lld WAIT SEND\n", timestamp_us()); 
     while (common->from_iec_command.cmd) {
     }
-    printf("%lld WAIT SEND ENDn", timestamp_us()); 
+    printf("%lld WAIT SEND END\n", timestamp_us()); 
   }
   common->from_iec_command.device_address = device_address;
   common->from_iec_command.secondary = secondary;
@@ -171,35 +171,33 @@ int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, u
   //while (common->from_iec_command.cmd) {
   //}
   //printf("%lld SEND ACK\n", timestamp_us()); 
+#ifndef SINGLE_PROCESS
   return 0;
+#else
+  return handle_iecgw();
 #endif
 }
 
 static int to_iec_prepare_read_msg(uint8_t device_address) {
-#ifdef SINGLE_PROCESS
-#else
   if (common->socketfds[device_address] < 0) {
     printf("Address %d is not connected3\n", device_address);
     return -1;
   }
+#ifndef SINGLE_PROCESS
   // TODO there is still a race possibility
   while (common->to_iec_command.cmd) {
     printf("INCOMING!\n");
     check_input();
   }
+#endif
   // TODO handle device_address
   // common->to_iec_command.device_address = device_address;
-#endif
   return 0;
 }
 
 static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *secondary, uint8_t *buffer, size_t *size)
 {
   fflush(stdout);
-#ifdef SINGLE_PROCESS
-  // Blocking read
-  return socket_read_msg(common->socketfds[device_address], cmd, secondary, buffer, size);
-#else
   if (common->socketfds[device_address] < 0) {
     printf("Address %d is not connected3\n", device_address);
     return -1;
@@ -208,6 +206,9 @@ static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *second
   // TODO reconsider device_address
   //printf("%lld WAIT RECEIVE\n", timestamp_us()); 
   while (!common->to_iec_command.cmd) {
+#ifdef SINGLE_PROCESS
+    handle_socket(0);
+#endif
     if (!get_atn()) {
       return -1;
     }
@@ -219,7 +220,6 @@ static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *second
   memcpy (buffer, common->to_iec_command.data, *size);
   common->to_iec_command.cmd = 0; // ACK
   return 0;
-#endif
 }
 
 // Called from iec.c

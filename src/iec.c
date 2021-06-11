@@ -56,6 +56,9 @@
 
 uint8_t load_refill(buffer_t *buf);
 uint8_t save_refill(buffer_t *buf);
+uint8_t iecgw_check_atn();
+int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size);
+
 
 /* ------------------------------------------------------------------------- */
 /*  Global variables                                                         */
@@ -85,6 +88,9 @@ static iec_bus_t iec_debounced(void) {
 uint8_t iec_check_atn(void) {
   if (iec_data.device_state == HOST_ATN)
     return 0;
+  // TODO check if there is a socket command
+  if (iec_data.device_state == HOST_LISTEN && iecgw_check_atn())
+    return 1;
 
   if (iec_data.bus_state == BUS_ATNACTIVE)
     if (IEC_ATN) {
@@ -333,15 +339,12 @@ static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
   start_timeout(1000);
   printf("%lld iec_atn_putc %02x %02x %02x\n", timestamp_us(), cmd1, cmd2, cmd3);
 
-  uint8_t ret = -1;
+  uint8_t ret = 74; // DriveNotReady
 
-  // FIXME delay ?
-    debug_state();
+  debug_state();
   do {
     if (has_timed_out()) {
-      // iec_data.bus_state = BUS_CLEANUP;
-      // FIXME Device not present error
-      printf("%lld iec_atn_putc ERR timeo\n", timestamp_us());
+      ret = 96; // DeviceNotPresent
       goto endatn;
     }
     // Wait for data pull down
@@ -353,14 +356,14 @@ static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
     goto endatn;
   }
   if (cmd2) {
-    delay_us(1000); // FIXME ?
+    //delay_us(1000); // FIXME ?
     debug_atn_command("SEND", cmd2);
     if (iec_putc(cmd2, 0)) {
       printf("iec_atn_putc ERR2\n");
       goto endatn;
     }
     if (cmd3) {
-      delay_us(1000); // FIXME ?
+      //delay_us(1000); // FIXME ?
       debug_atn_command("SEND", cmd3);
       if (iec_putc(cmd3, 0)) {
         printf("iec_atn_putc ERR3\n");
@@ -384,12 +387,12 @@ static uint8_t iec_start_listening() {
   delay_us(70);
 
   start_timeout(20000);
-  printf("%lld make_listening\n", timestamp_us());
+  printf("%lld iec_start_listening\n", timestamp_us());
   do {
     if (has_timed_out()) {
       iec_data.bus_state = BUS_CLEANUP;
       // FIXME Device not present error
-      printf("%lld make_talker ERR timeo\n", timestamp_us());
+      printf("%lld iec_start_listening ERR timeo\n", timestamp_us());
       return -1;
     }
     // Wait for data pull down
@@ -401,12 +404,12 @@ static uint8_t iec_start_listening() {
 static uint8_t iec_end_listening() {
 
   start_timeout(20000);
-  printf("%lld end_make_listening\n", timestamp_us());
+  printf("%lld iec_end_listening\n", timestamp_us());
   do {
     if (has_timed_out()) {
       iec_data.bus_state = BUS_CLEANUP;
       // FIXME Device not present error
-      printf("%lld make_listener ERR timeo\n", timestamp_us());
+      printf("%lld iec_end_listening ERR timeo\n", timestamp_us());
       return -1;
     }
     // Wait for data pull down
@@ -440,22 +443,20 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
   buf = find_buffer(cmd & 0x0f);
   if (buf != NULL && buf->read) {
     /* If the secondary is already in use, close the existing buffer */
-    printf("%lld cleanup_and_free_buffer listen %02x\n", timestamp_us(), cmd);
+    printf("%lld iec_listen_handler cleanup_and_free_buffer %02x\n", timestamp_us(), cmd);
     cleanup_and_free_buffer(buf);
     buf = NULL;
   }
 
   if (buf == NULL) {
-    printf("%lld alloc_buffer listen %02x\n", timestamp_us(), cmd);
+    printf("%lld iec_listen_handler alloc_buffer %02x\n", timestamp_us(), cmd);
     buf = alloc_buffer();
     if (!buf)
       return 1;
 
     //uart_trace(command_buffer,0,command_length);
     buf->secondary = cmd & 0x0f;
-    buf->lastused = 0;
     buf->sendeoi = 0;
-    buf->position = 0;
     buf->read = 0;
     buf->write = 1;
     buf->refill = save_refill;
@@ -463,6 +464,8 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
     buf->lastused = 1;
     //buf->recordlen = 254;
     stick_buffer(buf);
+  } else {
+      printf("%lld iec_listen_handler OLD buffer %02x\n", timestamp_us(), cmd);
   }
   buf->pvt.sockcmd.cmd = cmd;
   
@@ -510,6 +513,12 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
         (iec_data.iecflags & EOI_RECVD))
         if (buf->refill(buf))
           return 1;
+
+      if ((iec_data.iecflags & EOI_RECVD) && iec_data.device_state == HOST_LISTEN) {
+        printf("JEEBU END HOST_LISTEN\n");
+        fflush(stdout);
+        return 0;
+      }
   }
 }
 
@@ -527,14 +536,14 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
   buf = find_buffer(cmd & 0x0f);
   if (buf != NULL && buf->write) {
     /* If the secondary is already in use, close the existing buffer */
-    printf("%lld cleanup_and_free_buffer talk %02x\n", timestamp_us(), cmd);
+    printf("%lld iec_talk_handler cleanup_and_free_buffer %02x\n", timestamp_us(), cmd);
     cleanup_and_free_buffer(buf);
     buf = NULL;
   }
 
 
   if (buf == NULL) {
-    printf("%lld alloc_buffer talk %02x\n", timestamp_us(), cmd);
+    printf("%lld iec_talk_handler alloc_buffer %02x\n", timestamp_us(), cmd);
     buf = alloc_buffer();
     if (!buf)
       return 1;
@@ -559,7 +568,7 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
       return 1;
     }
   } else {
-    printf("%lld go on with old buffer talk cmd %02x read %d pos %d - %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
+    printf("%lld iec_talk_handler OLD buffer cmd %02x read %d pos %d - %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
   }
 
   if (iec_data.iecflags & JIFFY_ACTIVE)
@@ -705,8 +714,124 @@ void iec_init(void) {
 
 void bus_init(void) __attribute__((weak, alias("iec_init")));
 
+uint8_t host_send_open(uint8_t device, uint8_t secondary) {
+   uint8_t status;
+  //setbuf(stdout, 0);
+
+  // ATN_CODE_LISTEN, 8
+  // ATN_CODE_OPEN, 0
+  status = iec_atn_putc(0x20 + device, 0xf0 + secondary, 0);
+  if (status) {
+    printf("%lld ERROR Cannot send open %d\n", timestamp_us(), status);
+    return status;
+  }
+ 
+  iec_data.device_state = HOST_TALK;
+  // Send filename. Buffer is already set up
+  if (iec_talk_handler(0xf0 + secondary)) {
+    printf("%lld ERROR Send buffer failed\n", timestamp_us());
+    return 74; // DriveNotReady
+  }
+  return 0; // Ok
+}
+
+uint8_t host_send_talk(uint8_t device, uint8_t secondary) {
+  uint8_t status;
+  // ATN_CODE_TALK, 8
+  // ATN_CODE_DATA, 0
+  status = iec_atn_putc(0x40 + device, 0x60 + secondary, 0);
+  if (status) {
+    printf("%lld ERROR Cannot send talk %d\n", timestamp_us(), status);
+    return status;
+  }
+
+  //printf("iec_start_listening\n");
+  //fflush(stdout);
+  iec_data.device_state = HOST_LISTEN;
+  if (iec_start_listening()) {
+    printf("%lld ERROR in iec_start_listening\n", timestamp_us());
+    return 74; // DriveNotReady
+  }
+
+  // FIXME, TWICE the same code, but it works ??!??
+
+  // ATN_CODE_TALK, 8
+  // ATN_CODE_DATA, 0
+  status = iec_atn_putc(0x40 + device, 0x60 + secondary, 0);
+  if (status) {
+    printf("%lld ERROR Cannot send talk %d\n", timestamp_us(), status);
+    return status;
+  }
+
+  //printf("iec_start_listening\n");
+  //fflush(stdout);
+  iec_data.device_state = HOST_LISTEN;
+  if (iec_start_listening()) {
+    printf("%lld ERROR in iec_start_listening\n", timestamp_us());
+    return 74; // DriveNotReady
+  }
+
+
+
+  // FIXME open_file, allocate buffer
+  printf("%lld iec_listen_handler\n", timestamp_us());
+  //fflush(stdout);
+  if (iec_listen_handler(0x60 + secondary)) {
+    printf("%lld ERROR in iec_listen_handler\n", timestamp_us());
+    return 74; // DriveNotReady
+  }
+  file_close(secondary);
+
+  // ATN_CODE_UNTALK
+  status = iec_atn_putc(0x5f, 0, 0);
+  if (status) {
+    printf("%lld ERROR cannot send untalk %d\n", timestamp_us(), status);
+    return status;
+  }
+  if (iec_end_listening()) {
+    printf("ERROR in iec_end_listening\n");
+    return 74; // DriveNotReady
+  }
+  return 0; // OK
+}
+
+uint8_t host_send_data(uint8_t device, uint8_t secondary) {
+  uint8_t status;
+  // ATN_CODE_LISTEN, 8
+  // ATN_CODE_DATA, 0
+  status = iec_atn_putc(0x20 + device, 0x60 + secondary, 0);
+  if (status) {
+    printf("%lld ERROR Cannot send open %d\n", timestamp_us(), status);
+    return status;
+  }
+ 
+  iec_data.device_state = HOST_TALK;
+  // TODO buffer ?
+  if (iec_talk_handler(0x60 + secondary)) {
+    printf("%lld ERROR in iec_talk_handler\n", timestamp_us());
+    return 74; // DriveNotReady
+  }
+  return 0; // Ok
+}
+
+uint8_t host_send_close(uint8_t device, uint8_t secondary) {
+  uint8_t status;
+  // ATN_CODE_LISTEN, 8
+  // ATN_CODE_CLOSE, 0
+  // ATN_CODE_UNLISTEN
+  status = iec_atn_putc(0x20 + device, 0xe0 + secondary, 0x3f);
+  if (status) {
+  //if (iec_atn_putc(0x28, 0xe0, 0x3f)) {
+    printf("%lld ERROR Cannot send close %d\n", timestamp_us(), status);
+    return status;
+  }
+  return 0; // Ok
+}
+
+
 void iec_mainloop(void) {
   int16_t cmd = 0; // make gcc happy...
+  uint8_t status;
 
   set_error(ERROR_DOSVERSION);
 
@@ -977,99 +1102,57 @@ void iec_mainloop(void) {
 
     case BUS_SENDOPEN:
       // Experimental code
-      iec_data.device_address = 8;
-      iec_data.secondary_address = 0; // load
-      cmd = 0; // OK
-      //setbuf(stdout, 0);
-
-      // ATN_CODE_LISTEN, 8
-      // ATN_CODE_OPEN, 0
-      if (iec_atn_putc(0x28, 0xf0, 0)) {
-        printf("Cannot send open\n");
-        cmd = 74; // DriveNotReady
-        goto open_out;
+      iec_data.iecflags = 0;
+      status = host_send_open(iec_data.device_address, iec_data.secondary_address);
+      iec_data.device_state = DEVICE_IDLE;
+      iec_data.bus_state = status ? BUS_CLEANUP : BUS_SENDTALK;
+      {
+        buffer_t *buf;
+        buf = find_buffer(iec_data.secondary_address & 0x0f);
+        if (buf != NULL && buf->write) {
+          printf("%lld cleanup_and_free_buffer open\n", timestamp_us());
+          cleanup_and_free_buffer(buf);
+        }        
       }
- 
-      // Buffer is already set up
-      if (iec_talk_handler(0xf0)) {
-        printf("Send buffer failed\n");
-        cmd = 74; // DriveNotReady
-        goto open_out;
-      }
-
-      open_out:
-      iec_data.bus_state = BUS_CLEANUP;
-      from_iec_write_msg(0, ':', 8, &cmd, 1); 
-      break;
-
-    case BUS_SENDDATA:
-      cmd = 74; // DriveNotReady
-      from_iec_write_msg(0, ':', 8, &cmd, 1); 
-      iec_data.bus_state = BUS_CLEANUP;
+      free_multiple_buffers(FMB_ALL_CLEAN);
+      //delay_us(10000);
+      fflush(stdout);
+      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
       break;
 
     case BUS_SENDTALK:
-      cmd = 0; // OK
+      iec_data.iecflags = 0;
+      status = host_send_talk(iec_data.device_address, iec_data.secondary_address);
+      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
+      {
+        buffer_t *buf;
+        buf = find_buffer(iec_data.secondary_address & 0x0f);
+        if (buf != NULL && buf->write) {
+          printf("%lld cleanup_and_free_buffer open\n", timestamp_us());
+          cleanup_and_free_buffer(buf);
+        }        
+      }
+      free_multiple_buffers(FMB_ALL_CLEAN);
+      iec_data.device_state = DEVICE_IDLE;
+      iec_data.bus_state = BUS_CLEANUP;
+      break;
 
-      // ATN_CODE_TALK, 8
-      // ATN_CODE_DATA, 0
-      if (iec_atn_putc(0x48, 0x60, 0)) {
-        printf("Cannot send talk\n");
-        cmd = 74; // DriveNotReady
-        goto talk_out;
-      }
-
-      //printf("iec_start_listening\n");
-      //fflush(stdout);
-      if (iec_start_listening()) {
-        printf("PAH31\n");
-        cmd = 74; // DriveNotReady
-        goto talk_out;
-      }
-
-      // FIXME open_file, allocate buffer
-      //printf("iec_listen_handler\n");
-      //fflush(stdout);
-      if (iec_listen_handler(0x61)) {
-        printf("PAH4\n");
-        cmd = 74; // DriveNotReady
-        goto talk_out;
-      }
-      printf("close\n");
-      fflush(stdout);
-      file_close(1); // like save
-
-      // ATN_CODE_UNTALK
-      if (iec_atn_putc(0x5f, 0, 0)) {
-        printf("PAH5\n");
-        cmd = 74; // DriveNotReady
-        goto talk_out;
-      }
-      printf("iec_end_listening\n");
-      fflush(stdout);
-      if (iec_end_listening()) {
-        printf("PAH51\n");
-        cmd = 74; // DriveNotReady
-        goto talk_out;
-      }
-      talk_out:
-      from_iec_write_msg(0, ':', 8, &cmd, 1); 
+    case BUS_SENDDATA:
+      iec_data.iecflags = 0;
+      status = host_send_data(iec_data.device_address, iec_data.secondary_address);
+      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
+      iec_data.device_state = DEVICE_IDLE;
       iec_data.bus_state = BUS_CLEANUP;
       break;
 
     case BUS_SENDCLOSE:
-      cmd = 0; // OK
-      iec_data.device_address = 8;
-      iec_data.secondary_address = 0; // load
-      // ATN_CODE_LISTEN, 8
-      // ATN_CODE_CLOSE, 0
-      // ATN_CODE_UNLISTEN
-      if (iec_atn_putc(0x28, 0xef, 0x3f)) {
-      //if (iec_atn_putc(0x28, 0xe0, 0x3f)) {
-        printf("Cannot send close\n");
-        cmd = 74; // DriveNotReady
-      }
-      from_iec_write_msg(0, ':', 8, &cmd, 1); 
+      iec_data.iecflags = 0;
+      status = host_send_close(iec_data.device_address, iec_data.secondary_address);
+      fflush(stdout);
+      usleep(1000);
+      status = host_send_close(iec_data.device_address, 0x0f);
+      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
+      iec_data.device_state = DEVICE_IDLE;
       iec_data.bus_state = BUS_CLEANUP;
       break;
     }

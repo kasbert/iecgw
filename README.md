@@ -41,6 +41,7 @@ All socket messages consists of 3-257 bytes
   Expects response
  * W Write
  * D Debug
+ * : Status response from host command
 
 ## -> IEC
  * I Initialize response for Initialize.
@@ -48,6 +49,10 @@ All socket messages consists of 3-257 bytes
  * : Error status for Read
  * B Bytes response for Read
  * E Bytes response for Read with end of file
+ * o Host open command, filename parameter, expects response
+ * c Host close command, expects response
+ * t Host send talk command (load file from device)
+ * d Host data command (save file to device)
 
 # Compile and use
 ```

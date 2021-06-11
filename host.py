@@ -2,6 +2,7 @@
 
 import sys
 import os
+from struct import pack
 
 from iecgw import IECGW,IECMessage,C64MemoryFile
 from iecgw.codec import toPETSCII,fromIEC,toIEC,IOErrorMessage,fromPETSCII
@@ -86,6 +87,8 @@ while True:
             s.iecSendMsg(IECMessage(b't', 0, b'')) # talk
         if c == 'c':
             s.iecSendMsg(IECMessage(b'c', 0, b'')) # close
+        if c == 'r':
+            s.iecSendMsg(IECMessage(b'o', 15, pack('cB', b'U', 202))) # close
         if c == 'q':
             break
     if s.s not in inp:
