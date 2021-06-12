@@ -349,6 +349,7 @@ static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
     }
     // Wait for data pull down
   } while (IEC_DATA);
+
   debug_atn_command("SEND", cmd1);
 
   if (iec_putc(cmd1, 0)) {
@@ -732,11 +733,44 @@ uint8_t host_send_open(uint8_t device, uint8_t secondary) {
     printf("%lld ERROR Send buffer failed\n", timestamp_us());
     return 74; // DriveNotReady
   }
+
   return 0; // Ok
 }
 
 uint8_t host_send_talk(uint8_t device, uint8_t secondary) {
   uint8_t status;
+
+
+// FIXME, TWICE the same code, but it works ??!??
+// There is still something wrong with the handshake
+  set_atn_irq(0);
+  set_atn(0);
+  set_data(1);
+  set_clock(0);
+  start_timeout(1000);
+
+  debug_state();
+  do {
+    if (has_timed_out()) {
+    printf("%lld ERROR DEVICE NOT PRESENT\n", timestamp_us());
+  delay_us(20);
+  set_atn(1);
+return 96;
+    }
+    // Wait for data pull down
+  } while (IEC_DATA);
+  delay_us(20);
+  set_atn(1);
+
+
+  if (iec_start_listening()) {
+    printf("%lld ERROR in iec_start_listening\n", timestamp_us());
+    return 74; // DriveNotReady
+  }
+// FIXME, TWICE the same code, but it works ??!??
+
+
+
   // ATN_CODE_TALK, 8
   // ATN_CODE_DATA, 0
   status = iec_atn_putc(0x40 + device, 0x60 + secondary, 0);
@@ -752,26 +786,6 @@ uint8_t host_send_talk(uint8_t device, uint8_t secondary) {
     printf("%lld ERROR in iec_start_listening\n", timestamp_us());
     return 74; // DriveNotReady
   }
-
-  // FIXME, TWICE the same code, but it works ??!??
-
-  // ATN_CODE_TALK, 8
-  // ATN_CODE_DATA, 0
-  status = iec_atn_putc(0x40 + device, 0x60 + secondary, 0);
-  if (status) {
-    printf("%lld ERROR Cannot send talk %d\n", timestamp_us(), status);
-    return status;
-  }
-
-  //printf("iec_start_listening\n");
-  //fflush(stdout);
-  iec_data.device_state = HOST_LISTEN;
-  if (iec_start_listening()) {
-    printf("%lld ERROR in iec_start_listening\n", timestamp_us());
-    return 74; // DriveNotReady
-  }
-
-
 
   // FIXME open_file, allocate buffer
   printf("%lld iec_listen_handler\n", timestamp_us());
@@ -1104,8 +1118,6 @@ void iec_mainloop(void) {
       // Experimental code
       iec_data.iecflags = 0;
       status = host_send_open(iec_data.device_address, iec_data.secondary_address);
-      iec_data.device_state = DEVICE_IDLE;
-      iec_data.bus_state = status ? BUS_CLEANUP : BUS_SENDTALK;
       {
         buffer_t *buf;
         buf = find_buffer(iec_data.secondary_address & 0x0f);
@@ -1118,6 +1130,9 @@ void iec_mainloop(void) {
       //delay_us(10000);
       fflush(stdout);
       from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
+      iec_data.device_state = DEVICE_IDLE;
+      iec_data.bus_state = status ? BUS_CLEANUP : BUS_SENDTALK;
+      iec_data.bus_state = BUS_CLEANUP;
       break;
 
     case BUS_SENDTALK:
@@ -1134,6 +1149,7 @@ void iec_mainloop(void) {
       }
       free_multiple_buffers(FMB_ALL_CLEAN);
       iec_data.device_state = DEVICE_IDLE;
+      iec_data.bus_state = status ? BUS_CLEANUP : BUS_SENDCLOSE;
       iec_data.bus_state = BUS_CLEANUP;
       break;
 
