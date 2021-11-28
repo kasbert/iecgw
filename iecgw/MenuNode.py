@@ -2,7 +2,7 @@
 import logging
 
 from .codec import matchFile,fromPETSCII
-from .CSDBNode import CSDBNode
+from iecgw import DirNode,CSDBNode,D64Node,ZipNode
 
 class MenuNode:
     def __init__(self, parent, files = [], title = b'MENU'):
@@ -56,11 +56,16 @@ class MenuNode:
         return self.files
 
     def isdir(self, iecname):
-        return True
+        entry = matchFile(self.files, iecname)
+        if entry is None:
+            return False
+        return entry['extension'] == 'DIR' or entry['extension'] == 'ZIP' or entry['extension'] == 'D64'
 
     def load(self, iecname):
         entry = matchFile(self.files, iecname)
         if entry is None:
+            return None
+        if not entry['node'].start():
             return None
         return entry['node'].load(iecname)
 

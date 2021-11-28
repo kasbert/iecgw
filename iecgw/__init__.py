@@ -1,5 +1,6 @@
 from .MenuNode import MenuNode
 from .DirNode import DirNode
+from .FileNode import FileNode
 from .ZipNode import ZipNode
 from .D64Node import D64Node
 from .CSDBNode import CSDBNode

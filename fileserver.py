@@ -7,8 +7,8 @@ import argparse
 import os
 import logging
 
-from iecgw import MenuNode,DirNode,CSDBNode,ZipNode,D64Node,IECGW,IECMessage,C64MemoryFile
-from iecgw.codec import toPETSCII,fromIEC,fromPETSCII,toIEC,IOErrorMessage,packDir
+from iecgw import MenuNode,DirNode,CSDBNode,FileNode,D64Node,ZipNode,IECGW,IECMessage,C64MemoryFile
+from iecgw.codec import toPETSCII,fromIEC,fromPETSCII,toIEC,IOErrorMessage,packDir,fileEntry
 
 debug = True
 
@@ -26,10 +26,21 @@ class FileServer:
         ]
         # { 'size': 0, 'name': b'CSDB.DK', 'extension': 'DIR', 'node': csdbNode},
         for filepath in files:
-            # TODO handle single files
-            node = DirNode(False, filepath, '.') # Not started
-            name = toPETSCII(os.path.basename(filepath))
-            elems.insert(0, { 'size': 0, 'name': name, 'extension': 'DIR', 'node': node})
+            size = int((os.path.getsize(filepath) + 255) / 256)
+            entry = fileEntry(size, filepath, [])
+            entry['name'] = toPETSCII(os.path.basename(filepath))
+            if os.path.isdir(filepath):
+                entry['extension'] = 'DIR'
+            if entry['extension'] == 'D64':
+                entry['node'] = D64Node(False, filepath, entry['real_name'])
+            elif entry['extension'] == 'ZIP':
+                entry['node'] = ZipNode(False, filepath, entry['real_name'])
+            elif entry['extension'] == 'DIR':
+                entry['node'] = DirNode(False, filepath, entry['real_name'])
+            else:
+                entry['node'] = FileNode(False, filepath)
+            logging.info('ENTRY %s', entry)
+            elems.insert(0, entry)
         self.current = MenuNode(False, elems)
         self.current.start()
 
