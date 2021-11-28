@@ -1,5 +1,6 @@
 
 import os
+import logging
 
 import cbmcodecs
 from d64 import DiskImage
@@ -9,11 +10,19 @@ from d64.dos_path import DOSPath
 from .IECGW import C64File
 
 class D64Node:
-    def __init__(self, parent, name):
-        self.path = os.path.normpath(parent + '/' + name)
+    def __init__(self, parent, dir, name):
+        self.parent = parent
+        self.path = os.path.normpath(dir + '/' + name)
         self.wfile = None
         self.rfile = None
+        self.image = None
+
+    def __str__(self):
+        return 'D64Node ' + repr(self.path)
+
+    def start(self):
         self.image = DiskImage(self.path).open()
+        return True
 
     def __del__(self):
         if hasattr(self, 'image') and self.image is not None:
@@ -25,7 +34,7 @@ class D64Node:
 
     def title(self):
         return self.image.name
-        # /home/kasper/.local/lib/python3.7/site-packages/d64/dos_image.py 
+        # /home/kasper/.local/lib/python3.7/site-packages/d64/dos_image.py
 
     def free(self):
         return self.image.bam.total_free()
@@ -33,8 +42,8 @@ class D64Node:
     def cd(self, iecname):
         self.close()
         if iecname == b'..' or iecname == b'_':
-            if self.next:
-                return self.next
+            if self.parent:
+                return self.parent
             return None
         if iecname == b'':
             return self
@@ -43,15 +52,16 @@ class D64Node:
     def list(self):
         arr = []
         for path in self.image.glob(b'*'):
-            print("LIST", path.size_blocks, path.name, path.entry.file_type)
-            arr.append({ 'size': path.size_blocks, 'name': path.name, 'extension': path.entry.file_type})
+            entry = { 'size': path.size_blocks, 'name': path.name, 'extension': path.entry.file_type}
+            logging.info('ENTRY %s', entry)
+            arr.append(entry)
         return arr
 
     def isdir(self, iecname):
         return False
 
     def load(self, iecname):
-        print ('LOAD', iecname)
+        logging.info('LOAD %s', iecname)
         #self.path = self.image.path(iecname.encode('petscii-c64en-uc'))
         path = self.image.path(iecname)
         if not path.exists():
@@ -74,7 +84,7 @@ class D64Node:
         if self.rfile is not None:
             self.rfile.close()
             self.rfile = None
-        self.path = None
+        #self.path = None
 __all__ = [
     "D64Node",
 ]

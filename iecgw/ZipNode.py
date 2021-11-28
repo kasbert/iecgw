@@ -3,12 +3,15 @@ import zipfile
 import tempfile
 import shutil
 import os
+import logging
+
 from .codec import toIEC,matchFile,fileEntry
 from .D64Node import D64Node
 from .IECGW import C64File
 
 class ZipNode:
-    def __init__(self, cwd, name):
+    def __init__(self, parent, cwd, name):
+        self.parent = parent
         self.path = os.path.normpath(cwd + '/' + name)
         self.wfile = None
         self.rfile = None
@@ -22,16 +25,19 @@ class ZipNode:
                 prefix = ''
                 break
         # TODO implement
-        print('COMMON PREFIX', prefix)
+        logging.info('COMMON PREFIX %s', prefix)
         self.prefix = prefix
-        self.mapFiles()
+        self.files = []
 
     def __del__(self):
         if hasattr(self, 'image') and self.image is not None:
             self.image.close()
             self.image = None
 
-    def mapFiles(self):
+    def __str__(self):
+        return 'DirNode ' + repr(self.path) + ':' + self.workdir
+
+    def start(self):
         self.files = []
         # FIXME add a shortcut for common prefix in all zipfiles
         dirs = []
@@ -51,15 +57,16 @@ class ZipNode:
                 dirs.append(dir)
                 file = fileEntry(0, dir, self.files)
                 file['extension'] = 'DIR'
-                print('ENTRY', file)
+                logging.info('ENTRY %s', file)
                 self.files.append(file)
                 continue
             file = fileEntry(size, name, self.files)
             if zipinfo.is_dir():
                 file['extension'] = 'DIR'
             file['real_name'] = zipinfo.filename
-            print('ENTRY', file)
+            logging.info('ENTRY %s', file)
             self.files.append(file)
+        return True
 
     def cwd(self):
         return self.path + ':' + self.workdir.rstrip('/')
@@ -83,7 +90,7 @@ class ZipNode:
     def cd(self, iecname):
         self.close()
         if iecname == b'':
-            self.mapFiles() # Just in case
+            self.start() # Just in case
             return self
         if iecname == b'..' or iecname == b'_':
             if self.workdir != '':
@@ -92,29 +99,31 @@ class ZipNode:
                 self.workdir = '/'.join(elems)
                 if self.workdir != '':
                     self.workdir += '/'
-                self.mapFiles() # Just in case
+                self.start() # Just in case
                 return self
-            if self.next:
-                return self.next
+            if self.parent:
+                return self.parent
             return None
         entry = matchFile(self.files, iecname)
         if entry is None:
             return None
-        print ('CD2', self.cwd(), entry['real_name'])
+        logging.info('CD2 %s %s', self.cwd(), entry['real_name'])
         if entry['extension'] == 'D64':
             filepath = entry['real_name']
             with self.image.open(filepath, 'r') as inh:
-                print ('COPY FILE', filepath)
+                logging.info('COPY FILE %s', filepath)
                 tempf = tempfile.NamedTemporaryFile(prefix='d64-', dir='/tmp',
                                                 delete=True)
                 shutil.copyfileobj(inh, tempf)
-                node = D64Node('', tempf.name)
-                node.next = self
+                node = D64Node(self, '', tempf.name)
+                if not node.start():
+                    tempf.close()
+                    return None
                 tempf.close()
                 return node
         if entry['extension'] == 'DIR':
             self.workdir = entry['real_name']
-            self.mapFiles()
+            self.start()
             return self
         return None
 
@@ -132,11 +141,11 @@ class ZipNode:
     def load(self, iecname):
         self.close()
         entry = matchFile(self.files, iecname)
-        print("LOAD", entry, repr(iecname))
+        logging.info("LOAD %s %s", entry, repr(iecname))
         if entry is None:
             return False
         filepath = entry['real_name']
-        print ('OPEN FILE', filepath)
+        logging.info ('OPEN FILE %s', filepath)
         self.rfile = self.image.open(filepath, 'r')
         filename = entry['name']
         zipinfo = self.image.getinfo(filepath)

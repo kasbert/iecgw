@@ -7,7 +7,7 @@ from struct import pack
 from iecgw import IECGW,IECMessage,C64MemoryFile
 from iecgw.codec import toPETSCII,fromIEC,toIEC,IOErrorMessage,fromPETSCII
 
-class testserver: 
+class testserver:
     def __init__(self):
         self.device_id = 0
 
@@ -15,7 +15,7 @@ class testserver:
         print ("SOCKET CMD", msg.cmd, "secondary", msg.secondary, 'data[',len(msg.data),']')
         if msg.cmd == ':':
             msg.cmd = 'status'
-        func = getattr(self, msg.cmd, None) 
+        func = getattr(self, msg.cmd, None)
         return func(msg.secondary, msg.data)
 
     def I(self, secondary, data): # Initialize
@@ -43,7 +43,7 @@ class testserver:
         return IECMessage(b'E', secondary, data)
         #print('READ OK')
         return IECMessage(b'B', secondary, data)
- 
+
     def W(self, secondary, data): # Write
         print ('WRITE', repr(data))
         return

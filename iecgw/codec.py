@@ -1,8 +1,10 @@
 
 from enum import Enum
-from d64.dos_path import DOSPath
 import itertools
 from struct import pack
+import logging
+
+from d64.dos_path import DOSPath
 
 def toIEC(s):
     buf = bytearray()
@@ -70,10 +72,10 @@ def matchFile(files, iecname):
     name = fromPETSCII(iecname)
     for entry in files:
         if DOSPath.wildcard_match(entry['name'], entry['extension'], iecname):
-            print('MATCH', repr(iecname), entry)
+            logging.debug('MATCH %s %s', repr(iecname), entry)
             return entry
         if DOSPath.wildcard_match(entry['name'], entry['extension'], name):
-            print('MATCH', repr(name), entry)
+            logging.debug('MATCH %s %s', repr(name), entry)
             return entry
     return None
 
@@ -109,13 +111,13 @@ def fileEntry(size, realname, files):
     return entry
 
 def packDir(title, list, free):
-    print ("TITLE", title, free)
+    logging.debug("TITLE %s %d", title, free)
     lname = b'\x12"' + title
     while len(lname) < 18:
         lname += b' '
     lname = lname[0:18]
     lname += b'" 12 4A'
- 
+
     basicPtr = 0x0401
     basicPtr += len(lname) + 5
 
@@ -164,7 +166,7 @@ def packDir(title, list, free):
 
     dirdata.append(0)
     dirdata.append(0)
-    #print ('DIR DATA', repr(dirdata))
+    #logging.debug('DIR DATA %s', repr(dirdata))
     return dirdata
 
 class IOErrorMessage(Enum):

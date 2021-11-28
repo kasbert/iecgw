@@ -1,18 +1,28 @@
 
+import logging
 
 from .codec import matchFile,fromPETSCII
 from .CSDBNode import CSDBNode
 
 class MenuNode:
-    def __init__(self, files = []):
-        self.next = False
+    def __init__(self, parent, files = [], title = b'MENU'):
+        self.parent = parent
         self.files = files
+        self._title = title
+
+    def __str__(self):
+        return 'MenuNode ' + repr(self._title)
+
+    def start(self):
+        for file in self.files:
+            file['node'].parent = self # TODO ?
+        return True
 
     def cwd(self):
         return ''
 
     def title(self):
-        return b'MENU'
+        return self._title
 
     def free(self):
         return 0
@@ -20,24 +30,26 @@ class MenuNode:
     def cd(self, iecname):
         self.close()
         if iecname == b'..' or iecname == b'_':
-            if self.next:
-                next = self.next
-                self.next = False
-                return next
+            if self.parent:
+                parent = self.parent
+                self.parent = False
+                return parent
             return self # Already at top
         if iecname == b'':
             return self
         if iecname.startswith(b'Q='):
             url = b'https://csdb.dk/search/?search=' + fromPETSCII(iecname)[2:]
-            print ('CD SEARCH', self.cwd(), url)
-            node = CSDBNode(url.decode('latin1'))
-            node.next = self
+            logging.info('CD SEARCH %s %s', self.cwd(), url)
+            node = CSDBNode(self, url.decode('latin1'), self)
+            if not node.start():
+                return None
             return node
         entry = matchFile(self.files, iecname)
         if entry is None:
             return None
-        node = entry['node']()
-        node.next = self
+        node = entry['node']
+        if not node.start():
+            return None
         return node
 
     def list(self):
@@ -47,7 +59,10 @@ class MenuNode:
         return True
 
     def load(self, iecname):
-        return None
+        entry = matchFile(self.files, iecname)
+        if entry is None:
+            return None
+        return entry['node'].load(iecname)
 
     def save(self, iecname):
         return None

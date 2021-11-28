@@ -3,7 +3,7 @@
 import sys
 import time
 from struct import unpack
-
+import logging
 
 from iecgw import IECGW,IECMessage
 from iecgw.codec import toPETSCII,fromIEC,toIEC,IOErrorMessage,fromPETSCII
@@ -14,7 +14,7 @@ class PrintServer:
 
     def handleMessage(self, msg):
         #print ("SOCKET CMD", msg.cmd, "secondary", msg.secondary, 'data[',len(msg.data),']')
-        func = getattr(self, msg.cmd, None) 
+        func = getattr(self, msg.cmd, None)
         return func(msg.secondary, msg.data)
 
     def I(self, secondary, data): # Initialize
@@ -40,7 +40,7 @@ class PrintServer:
         return IECMessage(b'E', secondary, data)
         #print('READ OK')
         return IECMessage(b'B', secondary, data)
- 
+
     def W(self, secondary, data): # Write
         print ('WRITE', repr(data))
         return

@@ -3,6 +3,7 @@ from html.parser import HTMLParser
 from html.entities import name2codepoint
 from urllib.parse import urljoin
 import tempfile
+import logging
 
 from .codec import fileEntry, fromPETSCII, toPETSCII, matchFile
 from .ZipNode import ZipNode
@@ -15,39 +16,34 @@ import urllib.request
 CSDB_URL='https://csdb.dk/toplist.php?type=release&subtype=%282%29'
 
 class CSDBNode:
-    def __init__(self, url = CSDB_URL):
+    def __init__(self, parent, url = CSDB_URL):
+        self.parent = parent
         self.url = url
-        self.next = False
-        self.files = []
         self.title_ = 'CSDB.DK'
-        self.mapFiles()
         self.tempf = None
         self.offset = 0
+        self.files = []
 
-    def mapFiles(self):
+    def __str__(self):
+        return 'CSDBNode ' + repr(self.url)
+
+    def start(self):
         parser = MyHTMLParser()
         parser.files = []
-        print ("OPEN", self.url)
-        try:
-            webUrl  = urllib.request.urlopen(self.url)
-        except: # TODO get code
-            print("Error")
-            return
-        print ("result code: " + str(webUrl.getcode()))
-        data = webUrl.read()
-        #print (data)
-
+        data = self.readPage(self.url)
+        if data is None:
+            return False
         parser.feed(data.decode('latin1'))
-        #print(repr(parser.files), parser.title_)
-        print('TITLE', parser.title_)
+        logging.info('TITLE %s', parser.title_)
         self.files = []
         self.title_ = parser.title_
         for entry in parser.files[0:50]:
             name = re.sub(r'^.*/', '', entry['name'])
             file = fileEntry(0, name, self.files)
             file['href'] = entry['href']
-            print('ENTRY', file)
+            logging.info('ENTRY %s', file)
             self.files.append(file)
+        return True
 
     def cwd(self):
         return ''
@@ -61,16 +57,17 @@ class CSDBNode:
     def cd(self, iecname):
         self.close()
         if iecname == b'..' or iecname == b'_':
-            if self.next:
-                return self.next
+            if self.parent:
+                return self.parent
             return None
         if iecname == b'':
             return self
         if iecname.startswith(b'Q='):
             url = b'https://csdb.dk/search/?search=' + fromPETSCII(iecname)[2:]
-            print ('CD SEARCH', self.cwd(), url)
-            node = CSDBNode(url.decode('latin1'))
-            node.next = self
+            logging.info('CD SEARCH %s %s', self.cwd(), url)
+            node = CSDBNode(self, url.decode('latin1'))
+            if not node.start():
+                return None
             return node
         if iecname == b'== MORE ==' or iecname == b'== more ==': # Next page
             self.offset += 40
@@ -80,42 +77,35 @@ class CSDBNode:
             return None
         url = urljoin(self.url, entry['href'])
         if entry['extension'] == 'D64':
-            print ("OPEN", url)
-            try:
-                webUrl  = urllib.request.urlopen(url)
-            except: # TODO get code
-                print("Error")
+            data = self.readPage(url)
+            if data is None:
                 return None
-            print ("result code: " + str(webUrl.getcode()))
-            data = webUrl.read()
             tempf = tempfile.NamedTemporaryFile(prefix='d64-', dir='/tmp',
                                             delete=True)
             tempf.write(data)
-            node = D64Node('', tempf.name)
-            node.next = self
+            node = D64Node(self, '', tempf.name)
+            if not node.start():
+                return None
             self.tempf = tempf
             #tempf.close()
             return node
         if entry['extension'] == 'ZIP':
-            print ("OPEN", url)
-            try:
-                webUrl  = urllib.request.urlopen(url)
-            except: # TODO get code
-                print("Error")
+            data = self.readPage(url)
+            if data is None:
                 return None
-            print ("result code: " + str(webUrl.getcode()))
-            data = webUrl.read()
             tempf = tempfile.NamedTemporaryFile(prefix='zip-', dir='/tmp',
                                             delete=True)
             tempf.write(data)
-            node = ZipNode('', tempf.name)
-            node.next = self
+            node = ZipNode(self, '', tempf.name)
+            if not node.start():
+                return None
             self.tempf = tempf
             #tempf.close()
             return node
-        print ('CD', self.cwd(), url)
-        node = CSDBNode(url)
-        node.next = self
+        logging.info('CD %s %s', self.cwd(), url)
+        node = CSDBNode(self, url)
+        if not node.start():
+            return None
         return node
 
     def list(self):
@@ -132,7 +122,7 @@ class CSDBNode:
         if iecname == b'== MORE ==' or iecname == b'== more ==': # Next page
             return True
         entry = matchFile(self.files, iecname)
-        print("LOAD", entry, repr(iecname))
+        logging.info("LOAD %s %s", entry, repr(iecname))
         if entry is None:
             return False
         if entry['extension'] == 'PRG':
@@ -141,16 +131,15 @@ class CSDBNode:
 
     def load(self, iecname):
         entry = matchFile(self.files, iecname)
-        print("LOAD", entry, repr(iecname))
+        logging.info("LOAD %s %s", entry, repr(iecname))
         if entry is None:
             return None
         #... if entry['extension'] == 'PRG':
         if entry['extension'] == 'PRG':
             url = urljoin(self.url, entry['href'])
-            print ("OPEN", url)
-            webUrl  = urllib.request.urlopen(url)
-            print ("result code: " + str(webUrl.getcode()))
-            data = webUrl.read()
+            data = self.readPage(url)
+            if data is None:
+                return None
             return C64MemoryFile(data, entry['name'])
         return None
 
@@ -162,11 +151,27 @@ class CSDBNode:
             self.tempf.close()
             self.tempf = None
 
+    def readPage(self, url):
+        logging.info("OPEN %s", url)
+        try:
+            webUrl  = urllib.request.urlopen(url)
+        except Exception as e:
+            logging.exception("Error opening %s", url)
+            return None
+        logging.info("result code: %d", webUrl.getcode())
+        data = webUrl.read()
+        return data
+
 class MyHTMLParser(HTMLParser):
+    def __init__(self):
+        HTMLParser.__init__(self)
+        self.a = False
+        self.title = False
+
     def handle_starttag(self, tag, attrs):
-        #print("Start tag:", tag)
+        #logging.debug("Start tag: %s", tag)
         #for attr in attrs:
-        #    print("     attr:", attr)
+        #    logging.debug("     attr: %s", attr)
         attrs = dict(attrs)
         # TODO add configurable filtering
         if tag == 'a' and 'href' in attrs and (attrs['href'].startswith('/release') or attrs['href'].startswith('download')) and '&' not in attrs['href']:
@@ -176,38 +181,37 @@ class MyHTMLParser(HTMLParser):
             self.title = True
 
     def handle_endtag(self, tag):
-        #print("End tag  :", tag)
+        #logging.debug("End tag  : %s", tag)
         if tag == 'a' and self.a:
             self.a = False
             self.files.append({ 'size': 0, 'name': self.data, 'extension': 'DIR', 'href': self.href })
         if tag == 'title':
-            #print ('TITLE', self.data)
+            #logging.debug ('TITLE %s', self.data)
             self.title_ = self.data
             self.title = False
 
-
     def handle_data(self, data):
-        #print("Data     :", data)
+        #logging.debug("Data     : %s", data)
         if self.a or self.title:
             self.data = data.strip()
 
     def handle_comment(self, data):
-        #print("Comment  :", data)
+        #logging.debug("Comment  : %s", data)
         pass
 
     def handle_entityref(self, name):
         c = chr(name2codepoint[name])
-        print("Named ent:", c)
+        logging.info("Named ent: %s", c)
 
     def handle_charref(self, name):
         if name.startswith('x'):
             c = chr(int(name[1:], 16))
         else:
             c = chr(int(name))
-        print("Num ent  :", c)
+        logging.info("Num ent  : %s", c)
 
     def handle_decl(self, data):
-        #print("Decl     :", data)
+        #logging.info("Decl     : %s", data)
         self.a = False
         self.title = False
 

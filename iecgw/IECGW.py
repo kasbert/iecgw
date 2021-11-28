@@ -1,6 +1,7 @@
 import socket
 from struct import pack,unpack
 import io
+import logging
 
 HOST = '127.0.0.1'  # The server's hostname or IP address
 PORT = 1541        # The port used by the server
@@ -16,9 +17,9 @@ class IECGW:
     def iecSend(self, data):
         self.s.sendall(data)
         if len(data) < 20:
-            print('>', repr(data))
+            logging.debug('> %s', repr(data))
         else:
-            print('>', repr(data[0:20]), '...')
+            logging.debug('> %s ...', repr(data[0:20]))
 
     def iecSendMsg(self, msg):
         data = msg.data
@@ -29,13 +30,13 @@ class IECGW:
         if len(data) > 0:
             self.s.sendall(data)
         if len(data) < 20:
-            print('>', repr(header), '[', len(data), ']', repr(data))
+            logging.debug('> %s [%d] %s', repr(header), len(data), repr(data))
         else:
-            print('>', repr(header), '[', len(data), ']', repr(data[0:20]), '...')
+            logging.debug('> %s [%d] %s ...', repr(header), len(data), repr(data[0:20]))
 
     def iecReadMsg(self):
         data = self.iecRead(3)
-        if data == b'':
+        if data == b'' or data is None:
             return None
         cmd = chr(data[0])
         secondary = data[1]
@@ -51,10 +52,10 @@ class IECGW:
         while len(buf) < length:
             data = self.s.recv(length - len(buf))
             if data == b'':
-                print('<*', repr(buf))
+                logging.debug('<* %s', repr(buf))
                 return None
             buf += data
-        print('<', repr(buf))
+        logging.debug('< %s', repr(buf))
         return buf
 
     def iecReadUntil(self, char):
@@ -66,7 +67,7 @@ class IECGW:
             buf.append(data[0])
             if data[0] == ord(char):
                 break
-        print('<', repr(buf))
+        logging.debug('< %s', repr(buf))
         return buf
 
 class IECMessage:
