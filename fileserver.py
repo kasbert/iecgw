@@ -6,7 +6,7 @@ from struct import unpack
 
 
 from iecgw import MenuNode, DirNode, CSDBNode, ZipNode,D64Node,IECGW,IECMessage,C64MemoryFile
-from iecgw.codec import toPETSCII,fromIEC,toIEC,IOErrorMessage,packDir
+from iecgw.codec import toPETSCII,fromIEC,fromPETSCII,toIEC,IOErrorMessage,packDir
 
 # TODO parse files from command line
 global topNode
@@ -50,6 +50,19 @@ class FileServer:
                 topNode.close()
                 topNode = topNode.next
             return
+        if name.startswith(b'/Q=') or name.startswith(b'/q='):
+            while topNode.next:
+                topNode.close()
+                topNode = topNode.next
+            if name[3:].decode('latin1').isnumeric():
+                url = b'https://csdb.dk/release/?id=' + name[3:]
+            else:
+                url = b'https://csdb.dk/search/?search=' + name[3:]
+            node = CSDBNode(url.decode('latin1'))
+            print ('CSDB SEARCH', url)
+            node.next = topNode
+            topNode = node
+            return
         newNode = topNode.cd(name)
         if newNode is None:
             print ("ERROR in cd ", repr(name))
@@ -69,7 +82,7 @@ class FileServer:
             dirdata = packDir(topNode.title(), topNode.list(), topNode.free())
             self.openFiles[0] = C64MemoryFile(dirdata, b'$')
             return
-        elif name == b'CD//' or topNode.isdir(name):
+        elif name == b'CD//' or topNode.isdir(name) or name.startswith(b'/Q=') or name.startswith(b'/q='):
             print ("LOAD CD", topNode.cwd(), name)
             self.doCd(name)
             dirdata = packDir(topNode.title(), topNode.list(), topNode.free())
@@ -211,4 +224,5 @@ while True:
                 s.iecSendMsg(response)
     except:
         print("Unexpected error:", sys.exc_info()[0])
+        print("Unexpected error:", repr(sys.exc_info()))
         time.sleep(10)
