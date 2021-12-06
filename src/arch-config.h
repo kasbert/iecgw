@@ -80,6 +80,43 @@ static inline uint8_t get_clock()
 {
     return readPIN(m_clockPin);
 }
+
+static inline void set_data1()
+{
+    // with pull up
+    pinMode(m_dataPin, INPUT);
+}
+
+static inline void set_data0()
+{
+    pinMode(m_dataPin, OUTPUT);
+    digitalWrite(m_dataPin, 0);
+}
+
+static inline void set_clock1()
+{
+    // with pull up
+    pinMode(m_clockPin, INPUT);
+}
+
+static inline void set_clock0()
+{
+    pinMode(m_clockPin, OUTPUT);
+    digitalWrite(m_clockPin, 0);
+}
+
+static inline void set_atn1()
+{
+    // with pull up
+    pinMode(m_atnPin, INPUT);
+}
+
+static inline void set_atn0()
+{
+    pinMode(m_atnPin, OUTPUT);
+    digitalWrite(m_atnPin, 0);
+}
+
 static inline void writePIN(uint8_t pinNumber, uint8_t state)
 {
     if (state)
@@ -135,39 +172,46 @@ static inline uint8_t get_clock()
 
 static inline void set_data1()
 {
-    //writePIN(m_dataPin, 1);
     // with pull up
     gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_INPUT);
 }
 
 static inline void set_data0()
 {
-    //writePIN(m_dataPin, 0);
     gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_OUTPUT);
     gpio_reg_output0(&gpio_reg_data);
 }
 
 static inline void set_clock1()
 {
-    //writePIN(m_clockPin, 1);
     // with pull up
     gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_INPUT);
 }
 
 static inline void set_clock0()
 {
-    //writePIN(m_clockPin, 0);
     gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_OUTPUT);
     gpio_reg_output0(&gpio_reg_clock);
 }
 
+static inline void set_atn1()
+{
+    // with pull up
+    gpio_reg_set_cfg(&gpio_reg_atn, SUNXI_GPIO_INPUT);
+}
+
+static inline void set_atn0()
+{
+    gpio_reg_set_cfg(&gpio_reg_atn, SUNXI_GPIO_OUTPUT);
+    gpio_reg_output0(&gpio_reg_atn);
+}
 //
 static inline uint8_t readPIN(uint8_t pinNumber)
 {
     return sunxi_gpio_input(pinNumber);
 }
 
-
+/*
 static inline void writePIN(uint8_t pinNumber, uint8_t state)
 {
     if (state)
@@ -195,6 +239,7 @@ static inline void set_clock(uint8_t state)
 {
     writePIN(m_clockPin, state);
 }
+*/
 
 #endif
 

@@ -110,7 +110,7 @@ uint8_t iec_check_atn(void) {
 #ifndef CONFIG_LOADER_DREAMLOAD
 IEC_ATN_HANDLER {
   if (!IEC_ATN) {
-    set_data(0);
+    set_data0();
   }
 }
 #endif
@@ -136,7 +136,7 @@ static int16_t _iec_getc(void) {
     if (iec_check_atn()) return -1;
   } while (!(iec_debounced() & IEC_BIT_CLOCK));
 
-  set_data(1);                                         // E9D7
+  set_data1();                                         // E9D7
   /* Wait until all other devices released the data line    */
   while (!IEC_DATA) ;                                  // FF20
 
@@ -150,9 +150,9 @@ static int16_t _iec_getc(void) {
 
   /* See if timeout happened -> EOI */
   if (t) {
-    set_data(0);                                       // E9F2
+    set_data0();                                       // E9F2
     delay_us(73);                       // E9F5-E9F8, delay calculated from all
-    set_data(1);                        //   instructions between IO accesses
+    set_data1();                        //   instructions between IO accesses
 
     uart_putc('E');
 
@@ -182,9 +182,9 @@ static int16_t _iec_getc(void) {
           // if ((val>>1) < 0x60 && ((val>>1) & 0x1f) == device_address) {
           if ((val>>1) < 0x60 && is_hw_address((val>>1) & 0x1f)) {
             /* If it's for us, notify controller that we support Jiffy too */
-            set_data(0);
+            set_data0();
             delay_us(101); // nlq says 405us, but the code shows only 101
-            set_data(1);
+            set_data1();
             iec_data.iecflags |= JIFFY_ACTIVE;
             printf ("JIFFY!\n");
           }
@@ -206,7 +206,7 @@ static int16_t _iec_getc(void) {
   }
 
   delay_us(5); // Test
-  set_data(0);                                         // EA28
+  set_data0();                                         // EA28
   delay_us(50);  /* Slow down a little bit, may or may not fix some problems */
   return val;
 }
@@ -254,7 +254,7 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
   i = iec_debounced();
 
   delay_us(60); // Fudged delay
-  set_clock(1);
+  set_clock1();
 
   if (i & IEC_BIT_DATA) { // E923
     /* The 1571 jumps to E937 at this point, but I think            */
@@ -275,7 +275,7 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
     } while (iec_debounced() & IEC_BIT_DATA);
   }
 
-  set_clock(0);                                        // E94B
+  set_clock0();                                        // E94B
   delay_us(40); // estimated
   do {
     if (iec_check_atn()) return -1;
@@ -289,17 +289,21 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
     }
     delay_us(45);     // calculated
 
-    set_data(data & 1<<i);
+    if (data & 1<<i) {
+      set_data1();
+    } else {
+      set_data0();
+    }
     delay_us(22);     // calculated
-    set_clock(1);
+    set_clock1();
     if (globalflags & VC20MODE)
       delay_us(34);   // Calculated delay
     else
       delay_us(75);   // Calculated delay
 
-    set_clock(0);     // FEFB
+    set_clock0();     // FEFB
     delay_us(22);     // calculated
-    set_data(1);      // FEFE
+    set_data1();      // FEFE
     delay_us(14);     // Settle time, approximate
   }
 
@@ -333,9 +337,9 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
 static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
   iec_data.device_state = HOST_ATN;
   set_atn_irq(0);
-  set_atn(0);
-  set_data(1);
-  set_clock(0);
+  set_atn0();
+  set_data1();
+  set_clock0();
   start_timeout(1000);
   printf("%lld iec_atn_putc %02x %02x %02x\n", timestamp_us(), cmd1, cmd2, cmd3);
 
@@ -376,15 +380,15 @@ static uint8_t iec_atn_putc(uint8_t cmd1, uint8_t cmd2, uint8_t cmd3) {
 
   endatn:
   delay_us(20);
-  set_atn(1);
+  set_atn1();
   iec_data.device_state = DEVICE_IDLE;
   return ret;
 }
 
 static uint8_t iec_start_listening() {
-  set_data(0);
+  set_data0();
   delay_us(70);
-  set_clock(1);
+  set_clock1();
   delay_us(70);
 
   start_timeout(20000);
@@ -417,9 +421,9 @@ static uint8_t iec_end_listening() {
     debug_state();
   } while (get_clock());
 
-  set_data(1);
+  set_data1();
   delay_us(70);
-  set_clock(0);
+  set_clock0();
   delay_us(70);
 
   return 0;
@@ -587,8 +591,8 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
     buf->position = 4;
 
     /* Ready-signal for the first block */
-    set_data(0);
-    set_clock(1);
+    set_data0();
+    set_clock1();
     /* FFA0 - this delay is required so the C64 can see data low even */
     /*        if it hits a badline at the worst possible moment       */
     delay_us(50);
@@ -615,11 +619,11 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
         if (finalbyte && buf->sendeoi) {
           /* Send EOI marker */
           delay_us(100);
-          set_clock(1);
+          set_clock1();
           delay_us(100);
-          set_clock(0);
+          set_clock0();
           delay_us(100);
-          set_clock(1);
+          set_clock1();
         }
       } else {
         uint8_t res;
@@ -635,8 +639,8 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
             /* Jiffy resets the EOI condition on the bus after 30-40us. */
             /* We use 50 to play it safe.                               */
             delay_us(50);
-            set_data(1);
-            set_clock(0);
+            set_data1();
+            set_clock0();
           }
           if (res) {
             uart_putc('Q');
@@ -683,8 +687,8 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
         return -1;
 
       /* Signal to the C64 that we're ready to send the next block */
-      set_data(0);
-      set_clock(1);
+      set_data0();
+      set_clock1();
 
       /* FFA0 - this delay is required so the C64 can see data low even */
       /*        if it hits a badline at the worst possible moment       */
@@ -702,7 +706,7 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
 void iec_init(void) {
   /* Keep DATA low if there is already a request on the bus */
   if (!IEC_ATN)
-    set_data(0);
+    set_data0();
 
   /* Prepare IEC interrupts */
   iec_interrupts_init();
@@ -744,9 +748,9 @@ uint8_t host_send_talk(uint8_t device, uint8_t secondary) {
 // FIXME, TWICE the same code, but it works ??!??
 // There is still something wrong with the handshake
   set_atn_irq(0);
-  set_atn(0);
-  set_data(1);
-  set_clock(0);
+  set_atn0();
+  set_data1();
+  set_clock0();
   start_timeout(1000);
 
   debug_state();
@@ -754,13 +758,13 @@ uint8_t host_send_talk(uint8_t device, uint8_t secondary) {
     if (has_timed_out()) {
     printf("%lld ERROR DEVICE NOT PRESENT\n", timestamp_us());
   delay_us(20);
-  set_atn(1);
+  set_atn1();
 return 96;
     }
     // Wait for data pull down
   } while (IEC_DATA);
   delay_us(20);
-  set_atn(1);
+  set_atn1();
 
 
   if (iec_start_listening()) {
@@ -857,8 +861,8 @@ void iec_mainloop(void) {
     switch (iec_data.bus_state) {
     case BUS_SLEEP:
       set_atn_irq(0);
-      set_data(1);
-      set_clock(1);
+      set_data1();
+      set_clock1();
       set_error(ERROR_OK);
       set_busy_led(0);
       set_dirty_led(1);
@@ -900,8 +904,8 @@ void iec_mainloop(void) {
 
     case BUS_FOUNDATN: // E85B
       /* Pull data low to say we're here */
-      set_clock(1);
-      set_data(0);
+      set_clock1();
+      set_data0();
       set_atn_irq(0);
 
       iec_data.device_state = DEVICE_IDLE;
@@ -1016,8 +1020,8 @@ void iec_mainloop(void) {
 
     case BUS_NOTFORME: // E8FD
       set_atn_irq(0);
-      set_clock(1);
-      set_data(1);
+      set_clock1();
+      set_data1();
       iec_data.bus_state = BUS_ATNFINISH;
       break;
 
@@ -1050,9 +1054,9 @@ void iec_mainloop(void) {
         if (iec_listen_handler(cmd))
           break;
       } else if (iec_data.device_state == DEVICE_TALK) {
-        set_data(1);
+        set_data1();
         delay_us(50);    // Implicit delay, fudged
-        set_clock(0);
+        set_clock0();
         delay_us(70);    // Implicit delay, estimated
 
         if (iec_talk_handler(cmd))
@@ -1065,8 +1069,8 @@ void iec_mainloop(void) {
     case BUS_CLEANUP:
       set_atn_irq(1);
       // 836B
-      set_clock(1);
-      set_data(1);
+      set_clock1();
+      set_data1();
 
       //   0x255 -> A61C
       /* Handle commands and filenames */
