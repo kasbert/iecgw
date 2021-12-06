@@ -469,7 +469,7 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
       printf("%lld iec_listen_handler OLD buffer %02x\n", timestamp_us(), cmd);
   }
   buf->pvt.sockcmd.cmd = cmd;
-  
+
   while (1) {
     if (iec_data.iecflags & JIFFY_ACTIVE) {
       iec_bus_t flags;
@@ -853,7 +853,7 @@ void iec_mainloop(void) {
 
   while (1) {
     debug_state();
-  
+
     switch (iec_data.bus_state) {
     case BUS_SLEEP:
       set_atn_irq(0);
@@ -1124,12 +1124,12 @@ void iec_mainloop(void) {
         if (buf != NULL && buf->write) {
           printf("%lld cleanup_and_free_buffer open\n", timestamp_us());
           cleanup_and_free_buffer(buf);
-        }        
+        }
       }
       free_multiple_buffers(FMB_ALL_CLEAN);
       //delay_us(10000);
       fflush(stdout);
-      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
+      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1);
       iec_data.device_state = DEVICE_IDLE;
       iec_data.bus_state = status ? BUS_CLEANUP : BUS_SENDTALK;
       iec_data.bus_state = BUS_CLEANUP;
@@ -1138,14 +1138,14 @@ void iec_mainloop(void) {
     case BUS_SENDTALK:
       iec_data.iecflags = 0;
       status = host_send_talk(iec_data.device_address, iec_data.secondary_address);
-      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1); 
+      from_iec_write_msg(0, ':', iec_data.secondary_address, &status, 1);
       {
         buffer_t *buf;
         buf = find_buffer(iec_data.secondary_address & 0x0f);
         if (buf != NULL && buf->write) {
           printf("%lld cleanup_and_free_buffer open\n", timestamp_us());
           cleanup_and_free_buffer(buf);
-        }        
+        }
       }
       free_multiple_buffers(FMB_ALL_CLEAN);
       iec_data.device_state = DEVICE_IDLE;

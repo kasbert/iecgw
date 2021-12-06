@@ -8,7 +8,7 @@
 void debug_state() {
     printf("%lld STATE %d %-15s %d %-10s ATN %d CLOCK %d DATA %d\n",timestamp_us(),iec_data.bus_state, 
     state2str(iec_data.bus_state), iec_data.device_state, dstate2str(iec_data.device_state),
-    digitalRead(m_atnPin), digitalRead(m_clockPin), digitalRead(m_dataPin));
+    get_atn(), get_clock(), get_data());
 }
 
 void debug_atn_command(char *message, uint8_t cmd1) {

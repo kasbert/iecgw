@@ -7,6 +7,7 @@
 #include <sched.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <signal.h>
 
 #include "arch-config.h"
@@ -15,7 +16,7 @@
 #include "iecgw.h"
 
 static void setup_realtimeish();
-void gpio_init();
+int gpio_init();
 void proc_exit()
 {
   exit(0);
@@ -30,6 +31,10 @@ int main(int argc, char **argv)
 #ifndef SINGLE_PROCESS
   switch (fork()) {
     case 0: // Child, socket process
+    if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1) {
+      perror("prctl");
+      exit(EXIT_FAILURE);
+    }
 #endif
       signal(SIGPIPE, SIG_IGN);
 
@@ -51,11 +56,11 @@ int main(int argc, char **argv)
       setvbuf(stdout, stdout_buffer, _IOFBF, sizeof(stdout_buffer));
       setup_realtimeish();
 
-      wiringPiSetup();
-
       buffers_init();
-      gpio_init();
-
+      if (gpio_init()) {
+          printf("Error - Failed to initialize GPIO\n");
+          exit(EXIT_FAILURE);
+      }
       iec_init();
       setuid(65534); // nobody in my system
       iec_mainloop();
@@ -92,7 +97,7 @@ void setup_realtimeish()
   if (!p)
   {
     puts(buf);
-    puts("Add isolcpu=1 to kernel boot options");
+    puts("Add isolcpus=nohz,domain,1 nohz_full=1 rcu_nocbs=1 to kernel boot options");
     exit(EXIT_FAILURE);
   }
 

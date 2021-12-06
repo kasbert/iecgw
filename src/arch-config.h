@@ -2,9 +2,13 @@
 #ifndef ARCH_CONFIG_H
 #define ARCH_CONFIG_H
 
+#ifdef WIRINGPI
 #include <wiringPi.h>
 #undef TRUE
 #undef FALSE
+#else
+#include "gpio_lib.h"
+#endif
 #include <inttypes.h>
 #include <unistd.h>
 #include <time.h>
@@ -53,6 +57,7 @@ uint8_t check_input();
 #define IEC_CLOCK get_clock()
 #define IEC_INPUT iec_input()
 
+#ifdef WIRINGPI
 extern uint8_t m_atnPin;
 extern uint8_t m_dataPin;
 extern uint8_t m_clockPin;
@@ -102,6 +107,97 @@ static inline void set_clock(uint8_t state)
 {
     writePIN(m_clockPin, state);
 }
+#else
+extern uint8_t m_atnPin;
+extern uint8_t m_dataPin;
+extern uint8_t m_clockPin;
+extern uint8_t m_srqInPin;
+extern uint8_t m_resetPin;
+
+extern struct gpio_reg gpio_reg_atn;
+extern struct gpio_reg gpio_reg_data;
+extern struct gpio_reg gpio_reg_clock;
+
+unsigned int micros (void);
+
+static inline uint8_t get_atn()
+{
+    return gpio_reg_input(&gpio_reg_atn);
+}
+static inline uint8_t get_data()
+{
+    return gpio_reg_input(&gpio_reg_data);
+}
+static inline uint8_t get_clock()
+{
+    return gpio_reg_input(&gpio_reg_clock);
+}
+
+static inline void set_data1()
+{
+    //writePIN(m_dataPin, 1);
+    // with pull up
+    gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_INPUT);
+}
+
+static inline void set_data0()
+{
+    //writePIN(m_dataPin, 0);
+    gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_OUTPUT);
+    gpio_reg_output0(&gpio_reg_data);
+}
+
+static inline void set_clock1()
+{
+    //writePIN(m_clockPin, 1);
+    // with pull up
+    gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_INPUT);
+}
+
+static inline void set_clock0()
+{
+    //writePIN(m_clockPin, 0);
+    gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_OUTPUT);
+    gpio_reg_output0(&gpio_reg_clock);
+}
+
+//
+static inline uint8_t readPIN(uint8_t pinNumber)
+{
+    return sunxi_gpio_input(pinNumber);
+}
+
+
+static inline void writePIN(uint8_t pinNumber, uint8_t state)
+{
+    if (state)
+    {
+        // Pulled up
+        sunxi_gpio_set_cfgpin(pinNumber, SUNXI_GPIO_INPUT);
+    }
+    else
+    {
+        // Pull down
+        sunxi_gpio_set_cfgpin(pinNumber, SUNXI_GPIO_OUTPUT);
+        sunxi_gpio_output(pinNumber, LOW);
+    }
+}
+
+static inline void set_atn(uint8_t state)
+{
+    writePIN(m_atnPin, state);
+}
+static inline void set_data(uint8_t state)
+{
+    writePIN(m_dataPin, state);
+}
+static inline void set_clock(uint8_t state)
+{
+    writePIN(m_clockPin, state);
+}
+
+#endif
+
 static inline uint8_t iec_input()
 {
     uint8_t ret = ((IEC_ATN ? IEC_BIT_ATN : 0) | (IEC_DATA ? IEC_BIT_DATA : 0) | (IEC_CLOCK ? IEC_BIT_CLOCK : 0));

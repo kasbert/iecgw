@@ -28,16 +28,49 @@ int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, u
 void process_iecgw_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *data, size_t len);
 
 // TODO make configurable
+#ifdef WIRINGPI
 uint8_t m_atnPin = 6;
 uint8_t m_dataPin = 0;
 uint8_t m_clockPin = 1;
 uint8_t m_srqInPin = 2;
 uint8_t m_resetPin = 5;
+
+#else
+uint8_t m_atnPin = SUNXI_GPA(7);
+uint8_t m_dataPin = SUNXI_GPA(12);
+uint8_t m_clockPin = SUNXI_GPA(11);
+uint8_t m_srqInPin = SUNXI_GPA(6);
+uint8_t m_resetPin = SUNXI_GPA(1);
+
+struct gpio_reg gpio_reg_atn;
+struct gpio_reg gpio_reg_data;
+struct gpio_reg gpio_reg_clock;
+struct gpio_reg gpio_reg_srq_in;
+struct gpio_reg gpio_reg_reset;
+
+static uint64_t epochMicro ;
+
+unsigned int micros (void)
+{
+  uint64_t now ;
+  struct  timespec ts ;
+
+  // Does not trigger a system call, just a read from memory
+  clock_gettime (CLOCK_MONOTONIC_RAW, &ts) ;
+  now  = (uint64_t)ts.tv_sec * (uint64_t)1000000 + (uint64_t)(ts.tv_nsec / 1000) ;
+
+  return (uint32_t)(now - epochMicro) ;
+}
+#endif
+
 uint8_t m_dirtyLedPin = -1;
 uint8_t m_busyLedPin = -1;
 
-void gpio_init()
+int gpio_init()
 {
+#ifdef WIRINGPI
+  wiringPiSetup();
+
   pinMode(m_atnPin, INPUT);
   pinMode(m_dataPin, INPUT);
   pinMode(m_clockPin, INPUT);
@@ -49,6 +82,32 @@ void gpio_init()
   pullUpDnControl(m_clockPin, PUD_UP);
   pullUpDnControl(m_srqInPin, PUD_UP);
   pullUpDnControl(m_resetPin, PUD_UP);
+
+#else
+  struct timespec ts ;
+  clock_gettime (CLOCK_MONOTONIC_RAW, &ts) ;
+  epochMicro = (uint64_t)ts.tv_sec * (uint64_t)1000000 + (uint64_t)(ts.tv_nsec /    1000L) ;
+
+  if (SETUP_OK != sunxi_gpio_init()) {
+      return (-1);
+  }
+  gpio_reg_init(&gpio_reg_atn, m_atnPin);
+  gpio_reg_init(&gpio_reg_data, m_dataPin);
+  gpio_reg_init(&gpio_reg_clock, m_clockPin);
+  gpio_reg_init(&gpio_reg_srq_in, m_srqInPin);
+  gpio_reg_init(&gpio_reg_reset, m_resetPin);
+  gpio_reg_set_cfg(&gpio_reg_atn, SUNXI_GPIO_INPUT);
+  gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_INPUT);
+  gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_INPUT);
+  gpio_reg_set_cfg(&gpio_reg_srq_in, SUNXI_GPIO_INPUT);
+  gpio_reg_set_cfg(&gpio_reg_reset, SUNXI_GPIO_INPUT);
+  gpio_reg_set_pull(&gpio_reg_atn, UP);
+  gpio_reg_set_pull(&gpio_reg_data, UP);
+  gpio_reg_set_pull(&gpio_reg_clock, UP);
+  gpio_reg_set_pull(&gpio_reg_srq_in, UP);
+  gpio_reg_set_pull(&gpio_reg_reset, UP);
+#endif
+  return 0;
 }
 
 void debug_show_buffer(buffer_t *buf, char *message) {
