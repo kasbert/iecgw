@@ -36,7 +36,7 @@ class FileServer:
             elif entry['extension'] == 'ZIP':
                 entry['node'] = ZipNode(False, filepath, entry['real_name'])
             elif entry['extension'] == 'DIR':
-                entry['node'] = DirNode(False, filepath, entry['real_name'])
+                entry['node'] = DirNode(False, filepath)
             else:
                 entry['node'] = FileNode(False, filepath)
             logging.info('ENTRY %s', entry)

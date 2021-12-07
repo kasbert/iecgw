@@ -9,9 +9,12 @@ from .IECGW import C64File
 from .ZipNode import ZipNode
 
 class DirNode:
-    def __init__(self, parent, cwd, name):
+    def __init__(self, parent, cwd, name = None):
         self.parent = parent
-        self.path = os.path.normpath(cwd + '/' + name)
+        if name is None:
+            self.path = os.path.normpath(cwd)
+        else:
+            self.path = os.path.normpath(cwd + '/' + name)
         self.wfile = None
         self.rfile = None
         self.files = []
