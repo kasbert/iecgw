@@ -7,7 +7,7 @@ import argparse
 import os
 import logging
 
-from iecgw import MenuNode,DirNode,CSDBNode,FileNode,D64Node,ZipNode,IECGW,IECMessage,C64MemoryFile
+from iecgw import MenuNode,DirNode,CSDBNode,FileNode,D64Node,ZipNode,FileSearchNode,IECGW,IECMessage,C64MemoryFile
 from iecgw.codec import toPETSCII,fromIEC,fromPETSCII,toIEC,IOErrorMessage,packDir,fileEntry
 
 debug = True
@@ -25,12 +25,14 @@ class FileServer:
             { 'size': 0, 'name': b'CSDB DEMOS', 'extension': 'DIR', 'node': csdbDemosNode},
         ]
         # { 'size': 0, 'name': b'CSDB.DK', 'extension': 'DIR', 'node': csdbNode},
+        self.dirs = []
         for filepath in files:
             size = int((os.path.getsize(filepath) + 255) / 256)
             entry = fileEntry(size, filepath, [])
             entry['name'] = toPETSCII(os.path.basename(filepath))
             if os.path.isdir(filepath):
                 entry['extension'] = 'DIR'
+                self.dirs.append(filepath)
             if entry['extension'] == 'D64':
                 entry['node'] = D64Node(False, filepath, entry['real_name'])
             elif entry['extension'] == 'ZIP':
@@ -71,6 +73,15 @@ class FileServer:
                 return
             self.current = node
             return
+        if name.startswith(b'/S=') or name.startswith(b'/s='):
+            self.cdTop()
+            query = name[3:].decode('latin1')
+            logging.info('FILE SEARCH %s', query)
+            node = FileSearchNode(self.current, self.dirs, query)
+            if not node.start():
+                return
+            self.current = node
+            return
         newNode = self.current.cd(name)
         if newNode is None:
             logging.error("ERROR in cd %s", repr(name))
@@ -89,7 +100,7 @@ class FileServer:
             dirdata = packDir(self.current.title(), self.current.list(), self.current.free())
             self.openFiles[0] = C64MemoryFile(dirdata, b'$')
             return
-        elif name == b'CD//' or self.current.isdir(name) or name.startswith(b'/Q=') or name.startswith(b'/q='):
+        elif name == b'CD//' or self.current.isdir(name) or name.startswith(b'/Q=') or name.startswith(b'/q=') or name.startswith(b'/S=') or name.startswith(b'/s='):
             logging.info("LOAD CD %s %s", self.current.cwd(), name)
             self.doCd(name)
             dirdata = packDir(self.current.title(), self.current.list(), self.current.free())

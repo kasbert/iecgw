@@ -143,7 +143,7 @@ class ZipNode:
         entry = matchFile(self.files, iecname)
         logging.info("LOAD %s %s", entry, repr(iecname))
         if entry is None:
-            return False
+            return None
         filepath = entry['real_name']
         logging.info ('OPEN FILE %s', filepath)
         self.rfile = self.image.open(filepath, 'r')
