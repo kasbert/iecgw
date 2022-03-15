@@ -1,12 +1,14 @@
 
+SRC=iec.c utils.c buffers.c errormsg.c debug.c compat.c iecgw.c main.c gpio_lib.c llfl-common.c llfl-jiffydos.c
+
 all:
-	gcc -g -Wall -o iecgw iec.c utils.c buffers.c errormsg.c debug.c compat.c iecgw.c main.c gpio_lib.c
+	gcc -O -g -Wall -o iecgw $(SRC)
 
 single:
-	gcc -DSINGLE_PROCESS -g -Wall -o iecgw iec.c utils.c buffers.c errormsg.c debug.c compat.c iecgw.c main.c gpio_lib.c
+	gcc -DSINGLE_PROCESS -g -O -Wall -o iecgw $(SRC)
 
 wiring:
-	gcc -DWIRINGPI -g -Wall -o iecgw iec.c utils.c buffers.c errormsg.c debug.c compat.c iecgw.c main.c -lwiringPi
+	gcc -DWIRINGPI -g -O -Wall -o iecgw $(SRC) -lwiringPi
 
 clean:
 	rm -f iecgw

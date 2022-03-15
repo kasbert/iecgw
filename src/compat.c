@@ -7,6 +7,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/select.h>
+
 #include "arch-config.h"
 #include "iec.h"
 #include "debug.h"
@@ -110,6 +115,45 @@ int gpio_init()
   return 0;
 }
 
+volatile uint32_t *tmrs;
+
+volatile uint32_t *timer_register;
+
+#define TMR_IO_BASE 0x01c20c00
+
+int sunxi_tmrs_init(void) {
+    int fd;
+    unsigned int addr_start, addr_offset;
+    unsigned int PageSize, PageMask;
+    long int *gpio_map = NULL;
+
+
+    fd = open("/dev/mem", O_RDWR);
+    if(fd < 0) {
+        return SETUP_DEVMEM_FAIL;
+    }
+
+    PageSize = sysconf(_SC_PAGESIZE);
+    PageMask = (~(PageSize-1));
+
+    addr_start = TMR_IO_BASE & PageMask;
+    addr_offset = TMR_IO_BASE & ~PageMask;
+
+    gpio_map = (void *)mmap(0, PageSize*2, PROT_READ|PROT_WRITE, MAP_SHARED, fd, addr_start);
+    if(gpio_map == MAP_FAILED) {
+        return SETUP_MMAP_FAIL;
+    }
+    close(fd);
+
+    tmrs = (uint32_t*)((unsigned int)gpio_map + addr_offset);
+
+    // TODO check if tmrs[8] == 5
+    timer_register = tmrs + 10;
+
+    return SETUP_OK;
+}
+
+
 void debug_show_buffer(buffer_t *buf, char *message) {
   printf("%lld %s buffer sec %d %s%s%s%s%s %d-%d %d\n", timestamp_us(), message, buf->secondary,
   buf->write?"Write":"", buf->read?"Read":"", buf->sticky?"Sticky":"", buf->dirty?"Dirty":"", buf->sendeoi?"Sendeoi":""
@@ -126,10 +170,10 @@ uint8_t check_input() {
   if (common->to_iec_command.cmd != 0) {
     printf("%lld RECEIVED socket command %c\n", timestamp_us(), common->to_iec_command.cmd);
     fflush(stdout);
-    process_iecgw_msg(common->to_iec_command.device_address, 
+    process_iecgw_msg(common->to_iec_command.device_address,
       common->to_iec_command.cmd,
       common->to_iec_command.secondary,
-      common->to_iec_command.data,
+      (uint8_t*)common->to_iec_command.data,
       common->to_iec_command.size
     );
     common->to_iec_command.cmd = 0; // ACK
@@ -201,7 +245,6 @@ uint8_t is_hw_address(uint8_t device_address) {
   // Set current address as a side effect
   current_device_address = device_address;
   if (common->socketfds[device_address] < 0) {
-    printf("Address %d is not connected1\n", device_address);
     return 0;
   }
   return 1;
@@ -210,7 +253,7 @@ uint8_t is_hw_address(uint8_t device_address) {
 int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, uint8_t *buffer, uint8_t size)
 {
   if (common->socketfds[device_address] < 0) {
-    printf("Address %d is not connected2\n", device_address);
+    printf("from_iec_write_msg: address %d is not connected2\n", device_address);
     return -1;
   }
   // Wait for previous message to be handled
@@ -224,7 +267,7 @@ int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, u
   common->from_iec_command.device_address = device_address;
   common->from_iec_command.secondary = secondary;
   common->from_iec_command.size = size;
-  memcpy (common->from_iec_command.data, buffer, size);
+  memcpy ((void*)common->from_iec_command.data, buffer, size);
   common->from_iec_command.cmd = cmd;
   //printf("%lld WAIT SEND ACK\n", timestamp_us()); 
   //while (common->from_iec_command.cmd) {
@@ -239,7 +282,7 @@ int from_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t secondary, u
 
 static int to_iec_prepare_read_msg(uint8_t device_address) {
   if (common->socketfds[device_address] < 0) {
-    printf("Address %d is not connected3\n", device_address);
+    printf("to_iec_prepare_read_msg: address %d is not connected3\n", device_address);
     return -1;
   }
 #ifndef SINGLE_PROCESS
@@ -276,24 +319,24 @@ static int to_iec_read_msg(uint8_t device_address, uint8_t *cmd, uint8_t *second
   *cmd = common->to_iec_command.cmd;
   *size = common->to_iec_command.size;
   *secondary = common->to_iec_command.secondary;
-  memcpy (buffer, common->to_iec_command.data, *size);
+  memcpy (buffer, (void*)common->to_iec_command.data, *size);
   common->to_iec_command.cmd = 0; // ACK
   return 0;
 }
 
 // Called from iec.c
 
-/*
 void parse_doscommand(void)
 {
-  debug_print_buffer("parse_doscommand", command_buffer, command_length);
-  from_iec_write_msg(current_device_address, 'P', 0x0f, command_buffer, command_length);
+  printf("%lld parse_doscommand sec\n", timestamp_us());
+  //debug_print_buffer("parse_doscommand", command_buffer, command_length);
 }
-*/
+
 void file_open(uint8_t secondary)
 {
   /* Don't do any slow operations here. We are still in ATN handling. A talk or listen will follow */
   printf("%lld file_open sec %d\n", timestamp_us(), secondary);
+  //debug_print_buffer("file_open", command_buffer, command_length);
 }
 
 
@@ -337,6 +380,12 @@ uint8_t load_refill(buffer_t *buf)
     //buf->read = 0;
   }
   debug_show_buffer(buf, "load_refill ok");
+ extern int errors;
+  if (errors) {
+    printf("jiffy errors %d\n", errors);
+  debug_state();
+    errors = 0;
+  }
   return 0;
 }
 
@@ -403,18 +452,6 @@ void update_leds(void)
 {
   //set_busy_led(active_buffers != 0);
   //set_dirty_led(get_dirty_buffer_count() != 0);
-}
-
-uint8_t jiffy_receive(iec_bus_t *busstate)
-{
-  printf("jiffy_receive\n");
-  return 0;
-}
-
-uint8_t jiffy_send(uint8_t value, uint8_t eoi, uint8_t loadflags)
-{
-  printf("jiffy_send\n");
-  return 0;
 }
 
 int16_t dolphin_getc(void)

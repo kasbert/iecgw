@@ -167,15 +167,28 @@ extern unsigned int SUNXI_PIO_BASE;
 
 // Fast versions
 struct gpio_reg {
-    unsigned int *data_ptr;
+    volatile unsigned int *data_ptr;
     unsigned int num;
-    unsigned int *cfg_ptr;
+    unsigned int num_mask1;
+    unsigned int num_mask0;
+    volatile unsigned int *cfg_ptr;
     unsigned int cfg_offset;
-    unsigned int *pull_ptr;
+    unsigned int cfg_mask_input;
+    unsigned int cfg_mask_output;
+    volatile unsigned int *pull_ptr;
     unsigned int pull_offset;
 };
 
 extern int gpio_reg_init(struct gpio_reg * reg, unsigned int pin) ;
+
+static inline void gpio_reg_set_input(struct gpio_reg * reg) {
+    //*(reg->cfg_ptr) &= ~(0xf << reg->cfg_offset);
+    *(reg->cfg_ptr) &= reg->cfg_mask_input;
+}
+static inline void gpio_reg_set_output(struct gpio_reg * reg) {
+    //*(reg->cfg_ptr) |= 1 << reg->cfg_offset;
+    *(reg->cfg_ptr) |= reg->cfg_mask_output;
+}
 
 static inline void gpio_reg_set_cfg(struct gpio_reg * reg, unsigned int val) {
     unsigned int cfg = *(reg->cfg_ptr);
@@ -211,11 +224,13 @@ static inline void gpio_reg_output(struct gpio_reg * reg, unsigned int val) {
 }
 
 static inline void gpio_reg_output1(struct gpio_reg * reg) {
-    *(reg->data_ptr) |= 1 << reg->num;
+    //*(reg->data_ptr) |= 1 << reg->num;
+    *(reg->data_ptr) |= reg->num_mask1;
 }
 
 static inline void gpio_reg_output0(struct gpio_reg * reg) {
-    *(reg->data_ptr) &= ~(1 << reg->num);
+    //*(reg->data_ptr) &= ~(1 << reg->num);
+    *(reg->data_ptr) &= reg->num_mask0;
 }
 
 #endif

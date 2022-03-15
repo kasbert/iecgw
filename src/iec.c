@@ -40,8 +40,8 @@
 //#include "display.h"
 //#include "doscmd.h"
 #include "errormsg.h"
-//#include "fastloader.h"
-//#include "fastloader-ll.h"
+#include "fastloader.h"
+#include "fastloader-ll.h"
 //#include "fatops.h"
 #include "flags.h"
 //#include "fileops.h"
@@ -79,7 +79,7 @@ static iec_bus_t iec_debounced(void) {
 
   do {
     tmp = iec_bus_read();
-    //delay_us(2); /* 1571 uses LDA/CMP/BNE, approximate by waiting 2us */
+    delay_us(2); /* 1571 uses LDA/CMP/BNE, approximate by waiting 2us */
   } while (tmp != iec_bus_read());
   return tmp;
 }
@@ -168,17 +168,13 @@ static int16_t _iec_getc(void) {
     /* Check for JiffyDOS                                       */
     /*   Source: http://home.arcor.de/jochen.adler/ajnjil-t.htm */
     if (iec_data.bus_state == BUS_ATNACTIVE && i == 7) {
-#if 0
       start_timeout(218);
-#endif
 
       do {
         tmp = iec_bus_read();
 
         /* If there is a delay before the last bit, the controller uses JiffyDOS */
-#if 0
         if (!(iec_data.iecflags & JIFFY_ACTIVE) && has_timed_out()) {
-            printf ("JIFFY?\n");
           // if ((val>>1) < 0x60 && ((val>>1) & 0x1f) == device_address) {
           if ((val>>1) < 0x60 && is_hw_address((val>>1) & 0x1f)) {
             /* If it's for us, notify controller that we support Jiffy too */
@@ -186,10 +182,8 @@ static int16_t _iec_getc(void) {
             delay_us(101); // nlq says 405us, but the code shows only 101
             set_data1();
             iec_data.iecflags |= JIFFY_ACTIVE;
-            printf ("JIFFY!\n");
           }
         }
-#endif
       } while (!(tmp & IEC_BIT_CLOCK));
     } else {
       /* Capture data on rising edge */
@@ -289,7 +283,7 @@ static uint8_t iec_putc(uint8_t data, const uint8_t with_eoi) {
     }
     delay_us(45);     // calculated
 
-    if (data & 1<<i) {
+    if (data & (1 << i)) {
       set_data1();
     } else {
       set_data0();
@@ -433,31 +427,21 @@ static uint8_t iec_end_listening() {
 /*  Listen+Talk-Handling                                                     */
 /* ------------------------------------------------------------------------- */
 
-/**
- * iec_listen_handler - handle an incoming LISTEN request (EA2E)
- * @cmd: command byte received from the bus
- *
- * This function handles a listen request from the computer.
- */
-static uint8_t iec_listen_handler(const uint8_t cmd) {
-  int16_t c;
+static void iecgw_prepare_listen_buffer(const uint8_t cmd) {
   buffer_t *buf;
-
-  uart_putc('L');
-
   buf = find_buffer(cmd & 0x0f);
   if (buf != NULL && buf->read) {
     /* If the secondary is already in use, close the existing buffer */
-    printf("%lld iec_listen_handler cleanup_and_free_buffer %02x\n", timestamp_us(), cmd);
+    printf("%lld iecgw_prepare_listen_buffer cleanup_and_free_buffer %02x\n", timestamp_us(), cmd);
     cleanup_and_free_buffer(buf);
     buf = NULL;
   }
 
   if (buf == NULL) {
-    printf("%lld iec_listen_handler alloc_buffer %02x\n", timestamp_us(), cmd);
+    printf("%lld iecgw_prepare_listen_buffer alloc_buffer %02x\n", timestamp_us(), cmd);
     buf = alloc_buffer();
     if (!buf)
-      return 1;
+      return;
 
     //uart_trace(command_buffer,0,command_length);
     buf->secondary = cmd & 0x0f;
@@ -470,9 +454,33 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
     //buf->recordlen = 254;
     stick_buffer(buf);
   } else {
-      printf("%lld iec_listen_handler OLD buffer %02x\n", timestamp_us(), cmd);
+      printf("%lld iecgw_prepare_listen_buffer OLD buffer %02x\n", timestamp_us(), cmd);
   }
   buf->pvt.sockcmd.cmd = cmd;
+}
+
+/**
+ * iec_listen_handler - handle an incoming LISTEN request (EA2E)
+ * @cmd: command byte received from the bus
+ *
+ * This function handles a listen request from the computer.
+ */
+static uint8_t iec_listen_handler(const uint8_t cmd) {
+  int16_t c;
+  buffer_t *buf;
+
+  uart_putc('L');
+
+  iecgw_prepare_listen_buffer(cmd);
+  buf = find_buffer(cmd & 0x0f);
+
+  /* Abort if there is no buffer or it's not open for writing */
+  /* and it isn't an OPEN command                             */
+  if ((buf == NULL || !buf->write) /*&& (cmd & 0xf0) != 0xf0*/) {
+    uart_putc('c');
+    iec_data.bus_state = BUS_CLEANUP;
+    return 1;
+  }
 
   while (1) {
     if (iec_data.iecflags & JIFFY_ACTIVE) {
@@ -527,32 +535,23 @@ static uint8_t iec_listen_handler(const uint8_t cmd) {
   }
 }
 
-/**
- * iec_talk_handler - handle an incoming TALK request (E909)
- * @cmd: command byte received from the bus
- *
- * This function handles a talk request from the computer.
- */
-static uint8_t iec_talk_handler(uint8_t cmd) {
+static void iecgw_prepare_talk_buffer(const uint8_t cmd) {
   buffer_t *buf;
-
-  uart_putc('T');
 
   buf = find_buffer(cmd & 0x0f);
   if (buf != NULL && buf->write) {
     /* If the secondary is already in use, close the existing buffer */
-    printf("%lld iec_talk_handler cleanup_and_free_buffer %02x\n", timestamp_us(), cmd);
+    printf("%lld iecgw_prepare_talk_buffer cleanup_and_free_buffer %02x\n", timestamp_us(), cmd);
     cleanup_and_free_buffer(buf);
     buf = NULL;
   }
 
 
   if (buf == NULL) {
-    printf("%lld iec_talk_handler alloc_buffer %02x\n", timestamp_us(), cmd);
+    printf("%lld iecgw_prepare_talk_buffer alloc_buffer %02x\n", timestamp_us(), cmd);
     buf = alloc_buffer();
     if (!buf)
-      return 1;
-    //?    return 0; /* 0 because we didn't change the state here */
+      return;
 
     //uart_trace(command_buffer,0,command_length);
     buf->secondary = cmd & 0x0f;
@@ -570,11 +569,28 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
     // Initial refill
     if (buf->refill(buf)) {
       iec_data.bus_state = BUS_CLEANUP;
-      return 1;
+      return;
     }
   } else {
-    printf("%lld iec_talk_handler OLD buffer cmd %02x read %d pos %d - %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
+    printf("%lld iecgw_prepare_talk_buffer OLD buffer cmd %02x read %d pos %d - %d\n", timestamp_us(), cmd, buf->read, buf->position, buf->lastused);
   }
+}
+
+/**
+ * iec_talk_handler - handle an incoming TALK request (E909)
+ * @cmd: command byte received from the bus
+ *
+ * This function handles a talk request from the computer.
+ */
+static uint8_t iec_talk_handler(uint8_t cmd) {
+  buffer_t *buf;
+
+  uart_putc('T');
+  iecgw_prepare_talk_buffer(cmd);
+
+  buf = find_buffer(cmd & 0x0f);
+  if (buf == NULL)
+    return 0; /* 0 because we didn't change the state here */
 
   if (iec_data.iecflags & JIFFY_ACTIVE)
     /* wait 360us (J1541 E781) to make sure the C64 is at fbb7/fb0c */
@@ -612,6 +628,7 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
         /* see a previous data bit as the marker.                     */
         if (jiffy_send(buf->data[buf->position],0,128 | !finalbyte)) {
           /* Abort if ATN was seen */
+      //puts("jiffy error2\n");
           iec_check_atn();
           return -1;
         }
@@ -661,10 +678,10 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
       }
     } while (buf->position++ < buf->lastused);
 
-    if (buf->sendeoi &&
-//        (cmd & 0x0f) != 0x0f &&
-//        !buf->recordlen &&
-        buf->refill != directbuffer_refill) {
+    if (buf->sendeoi /* &&
+        (cmd & 0x0f) != 0x0f &&
+        !buf->recordlen &&
+        buf->refill != directbuffer_refill */) {
       buf->read = 0;
       break;
     }
@@ -698,6 +715,8 @@ static uint8_t iec_talk_handler(uint8_t cmd) {
 
   return 0;
 }
+
+
 
 /* ------------------------------------------------------------------------- */
 /*  Initialization and main loop                                             */
@@ -937,7 +956,7 @@ void iec_mainloop(void) {
       }
 
       debug_atn_command("RECV", cmd);
-      
+
       uart_putc('A');
       uart_puthex(cmd);
       uart_putcrlf();
@@ -1008,6 +1027,8 @@ void iec_mainloop(void) {
       } else {
         // Not me
         iec_data.bus_state = BUS_NOTFORME;
+        printf("is_hw_address: address %d is not connected1\n", cmd & 0x1f);
+        debug_state();
       }
       break;
 
@@ -1074,7 +1095,7 @@ void iec_mainloop(void) {
 
       //   0x255 -> A61C
       /* Handle commands and filenames */
-#if 0
+#if 1
       if (iec_data.iecflags & COMMAND_RECVD) {
 
 #ifdef HAVE_HOTPLUG
@@ -1093,7 +1114,7 @@ void iec_mainloop(void) {
           update_leds();
         }
 #endif
-
+        printf("HANDLE CLEANUP\n");
         if (iec_data.secondary_address == 0x0f) {
           /* Command channel */
           parse_doscommand();
@@ -1102,7 +1123,7 @@ void iec_mainloop(void) {
           datacrc = 0xffff;
           file_open(iec_data.secondary_address);
         }
-        command_length = 0;
+        //command_length = 0;
         iec_data.iecflags &= (uint8_t)~COMMAND_RECVD;
       }
 #endif

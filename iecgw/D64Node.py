@@ -2,9 +2,8 @@
 import os
 import logging
 
-import cbmcodecs
+import cbmcodecs2 as cbmcodecs
 from d64 import DiskImage
-from cbm_files import ProgramFile
 from d64.dos_path import DOSPath
 
 from .IECGW import C64File

@@ -167,6 +167,7 @@ class MyHTMLParser(HTMLParser):
         HTMLParser.__init__(self)
         self.a = False
         self.title = False
+        self.title_ = 'CSDB.DK'
 
     def handle_starttag(self, tag, attrs):
         #logging.debug("Start tag: %s", tag)

@@ -31,7 +31,7 @@ typedef uint8_t iec_bus_t;
 void device_hw_address_init();
 // uint8_t device_hw_address();
 uint8_t is_hw_address(uint8_t addr);
-// void parse_doscommand(void);
+void parse_doscommand(void);
 void file_open(uint8_t secondary);
 void file_close(uint8_t secondary);
 uint8_t check_input();
@@ -173,24 +173,28 @@ static inline uint8_t get_clock()
 static inline void set_data1()
 {
     // with pull up
-    gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_INPUT);
+    //gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_INPUT);
+    gpio_reg_set_input(&gpio_reg_data);
 }
 
 static inline void set_data0()
 {
-    gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_OUTPUT);
+    //gpio_reg_set_cfg(&gpio_reg_data, SUNXI_GPIO_OUTPUT);
+    gpio_reg_set_output(&gpio_reg_data);
     gpio_reg_output0(&gpio_reg_data);
 }
 
 static inline void set_clock1()
 {
     // with pull up
-    gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_INPUT);
+    //gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_INPUT);
+    gpio_reg_set_input(&gpio_reg_clock);
 }
 
 static inline void set_clock0()
 {
-    gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_OUTPUT);
+    //gpio_reg_set_cfg(&gpio_reg_clock, SUNXI_GPIO_OUTPUT);
+    gpio_reg_set_output(&gpio_reg_clock);
     gpio_reg_output0(&gpio_reg_clock);
 }
 
@@ -276,14 +280,21 @@ static inline uint64_t timestamp_us()
     return tv.tv_sec * (uint64_t)1000000 + tv.tv_usec;
     */
 }
-#define start_timeout(us) uint64_t timeout_us = timestamp_us() + (us);
-#define has_timed_out() (timestamp_us() > timeout_us)
+
+// 24Mhz timer, counting down
+#define UNITS_PER_us(t) (t*24)
+#define UNITS_PER_100ns(t) ((t*24)/10)
+extern volatile uint32_t *timer_register;
+#define timer_count() (*timer_register)
+
+#define start_timeout(us) uint32_t timeout_us = timer_count() - UNITS_PER_us(us);
+#define has_timed_out() ((uint32_t)(timer_count() - timeout_us) >= 0x80000000)
 
 static inline void delay_us(uint32_t us)
 {
-    start_timeout(us);
-    while (!has_timed_out())
-        ;
+  start_timeout(us);
+  while (!has_timed_out())
+      ;
 }
 
 #define delay_ms(x) usleep((x)*1000)
@@ -309,21 +320,6 @@ extern uint16_t datacrc;
 extern uint8_t file_extension_mode;
 extern uint8_t rom_filename[ROM_NAME_LENGTH + 1];
 
-#define PARALLEL_DIR_IN
-#define PARALLEL_DIR_OUT
-#define parallel_set_dir(x) \
-    do                      \
-    {                       \
-    } while (0)
-#define parallel_send_handshake()
-#define parallel_rxflag 0
-static inline void parallel_clear_rxflag(void)
-{
-}
-uint8_t jiffy_receive(iec_bus_t *busstate);
-uint8_t jiffy_send(uint8_t value, uint8_t eoi, uint8_t loadflags);
-int16_t dolphin_getc(void);
-uint8_t dolphin_putc(uint8_t data, uint8_t with_eoi);
 
 #define directbuffer_refill ((void*)1)
 

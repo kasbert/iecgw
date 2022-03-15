@@ -12,11 +12,12 @@ struct iecgw_command {
     uint8_t data[256];
 };
 
-struct {
+struct iecgw_common {
   int socketfds[32];
   struct iecgw_command to_iec_command;
   struct iecgw_command from_iec_command;
-} * common;
+};
+extern volatile struct iecgw_common *common;
 
 int iecgw_init();
 uint8_t iecgw_loop();

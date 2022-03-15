@@ -17,16 +17,19 @@
 
 static void setup_realtimeish();
 int gpio_init();
+int sunxi_tmrs_init(void);
 void proc_exit()
 {
   exit(0);
 }
 
+volatile struct iecgw_common *common;
+
 
 int main(int argc, char **argv)
 {
   common = mmap(NULL, sizeof(*common), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-  memset(common, 0, sizeof (*common));
+  memset((void *)common, 0, sizeof (*common));
 
 #ifndef SINGLE_PROCESS
   switch (fork()) {
@@ -61,6 +64,7 @@ int main(int argc, char **argv)
           printf("Error - Failed to initialize GPIO\n");
           exit(EXIT_FAILURE);
       }
+      sunxi_tmrs_init();
       iec_init();
       setuid(65534); // nobody in my system
       iec_mainloop();
@@ -93,7 +97,7 @@ void setup_realtimeish()
     exit(EXIT_FAILURE);
   }
   buf[len] = 0;
-  char *p = strstr(buf, "isolcpus=1");
+  char *p = strstr(buf, "isolcpus=nohz,domain,1");
   if (!p)
   {
     puts(buf);
@@ -125,6 +129,17 @@ void setup_realtimeish()
    sched_setscheduler(pid_num, SCHED_FIFO, &param);
    */
 
+  // YOU MUST have NOHZ_FULL kernel compile option set
+  /*
+  gzip -d < /proc/config.gz | grep NO_HZ
+  CONFIG_NO_HZ_COMMON=y
+  CONFIG_NO_HZ_IDLE=y
+  CONFIG_NO_HZ_FULL=y
+  CONFIG_NO_HZ=y
+  */
+  // IF your kernel does not have it, you must recompile the kernel with the option
+
+
   // echo performance | sudo tee /sys/devices/system/cpu/cpufreq/policy0/scaling_governor
   // find /sys/devices/virtual/workqueue -name cpumask  -exec sh -c 'echo 1 > {}' ';'
   // apt install linux-perf
@@ -133,5 +148,6 @@ void setup_realtimeish()
   // apt install irqbalance
   // irqbalance --foreground --oneshot
   // taskset -c 0-3 /home/kasper/hiccups/build/hiccups | column -t -c 1,2,3,4,5,6
+  // cat /proc/interrupts
 }
 

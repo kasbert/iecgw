@@ -190,8 +190,12 @@ int gpio_reg_init(struct gpio_reg * reg, unsigned int pin) {
     struct sunxi_gpio *pio =&((struct sunxi_gpio_reg *)SUNXI_PIO_BASE)->gpio_bank[bank];
     reg->data_ptr = &pio->dat;
     reg->num = num;
+    reg->num_mask1 = 1 << reg->num;
+    reg->num_mask0 = ~(1 << reg->num);
     reg->cfg_ptr = &(pio->cfg[cfg_index]);
     reg->cfg_offset = cfg_offset;
+    reg->cfg_mask_input = ~(0xf << reg->cfg_offset);
+    reg->cfg_mask_output = 1 << reg->cfg_offset;
     reg->pull_ptr = &(pio->pull[pull_index]);
     reg->pull_offset = pull_offset;
     return -1;

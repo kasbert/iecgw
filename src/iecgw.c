@@ -53,7 +53,7 @@ static int to_iec_write_msg(uint8_t device_address, uint8_t cmd, uint8_t seconda
   common->to_iec_command.device_address = device_address;
   common->to_iec_command.secondary = secondary;
   common->to_iec_command.size = size;
-  memcpy (common->to_iec_command.data, buffer, size);
+  memcpy ((void*)common->to_iec_command.data, buffer, size);
   common->to_iec_command.cmd = cmd;
   //printf("%lld* SEND IEC WAIT\n", timestamp_us());
   //while (common->to_iec_command.cmd) {
@@ -80,10 +80,10 @@ uint8_t handle_iecgw() {
     if (common->socketfds[device_address] < 0) {
       printf("%lld* Address %d is not connected3\n", timestamp_us(), device_address);
     } else {
-      socket_write_msg(common->socketfds[device_address], 
-      common->from_iec_command.cmd, 
-      common->from_iec_command.secondary, 
-      common->from_iec_command.data, 
+      socket_write_msg(common->socketfds[device_address],
+      common->from_iec_command.cmd,
+      common->from_iec_command.secondary,
+      (uint8_t*)common->from_iec_command.data,
       common->from_iec_command.size);
     }
     common->from_iec_command.cmd = 0; // ACK
